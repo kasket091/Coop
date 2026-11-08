@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Member } from './rules'
-import { canAdminApprove, requestStage, validateRequest, type LoanRequest } from './requests'
+import { canAdminApprove, requestStage, unpaidLoans, validateRequest, type LoanRequest } from './requests'
 
 const zeros = () => Array(12).fill(0)
 const borrower: Member = { id: 1, name: 'Aljem Aviola', heads: 12, paid: zeros(), interest: zeros() }
@@ -28,6 +28,21 @@ const req = (a: string, b: string, status: LoanRequest['status'] = 'pending'): L
   id: 'r', borrowerId: 'me', borrowerName: 'Aljem Aviola', type: 'flex', amount: 5000, months: 1, quote: '',
   comakers: { f1: { name: 'A', status: a as never }, f2: { name: 'B', status: b as never } }, comakerIds: ['f1', 'f2'],
   status, createdAt: 0,
+})
+
+describe('unpaid loans', () => {
+  const loan = (id: string, borrowerId: string, amount: number, status: LoanRequest['status']): LoanRequest =>
+    ({ ...req('approved', 'approved', status), id, borrowerId, amount })
+  const all = [loan('a', 'me', 5000, 'approved'), loan('b', 'me', 3000, 'paid'), loan('c', 'me', 2000, 'pending'),
+    loan('d', 'other', 9000, 'approved'), loan('e', 'me', 1000, 'declined')]
+  it('counts approved, not-yet-paid app loans plus the typed sheet balance', () => {
+    const u = unpaidLoans(all, 'me', 12500)
+    expect(u.loans.map((l) => l.id)).toEqual(['a'])
+    expect(u.appTotal).toBe(5000)
+    expect(u.total).toBe(17500)
+  })
+  it('a missing sheet balance counts as zero', () => expect(unpaidLoans(all, 'me').total).toBe(5000))
+  it('a paid loan reads as Paid', () => expect(requestStage(loan('b', 'me', 3000, 'paid'))).toBe('Paid'))
 })
 
 describe('approval flow', () => {

@@ -3,12 +3,13 @@ import { startingPassword } from './accounts'
 import { MONTHS, peso } from './format'
 import { IconCoop, IconLoans, IconSavings } from './icons'
 import { RequestCard } from './member-tabs'
-import { canAdminApprove, type LoanRequest } from './requests'
+import { canAdminApprove, unpaidLoans, type LoanRequest } from './requests'
 import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, adminDecide, deleteMember, importFromSheet, recomputeSummary, renameMember, resetLogin, savePayments,
+  addMember, adminDecide, deleteMember, importFromSheet, markLoanPaid, recomputeSummary, renameMember, resetLogin, savePayments,
+  saveSheetLoanBalance,
   signOutUser, startCycle, watchAllMembers, watchAllRequests, watchSummary, type StoredMember, type Summary,
 } from './store'
 
@@ -34,7 +35,7 @@ export function AdminApp({ year }: { year: number }) {
     <Shell year={year} tabs={tabs} current={tab} onTab={setTab}>
       <p className="admin-flag">Admin</p>
       {!members ? <Loading />
-        : tab === 'members' ? <Members members={members} year={year} />
+        : tab === 'members' ? <Members members={members} requests={requests} year={year} />
         : tab === 'requests' ? <Requests requests={requests} />
         : <CoopAdmin members={members} summary={summary} year={year} />}
     </Shell>
@@ -42,7 +43,7 @@ export function AdminApp({ year }: { year: number }) {
 }
 
 // ---------- members ----------
-function Members({ members, year }: { members: StoredMember[]; year: number }) {
+function Members({ members, requests, year }: { members: StoredMember[]; requests: LoanRequest[]; year: number }) {
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
@@ -50,7 +51,7 @@ function Members({ members, year }: { members: StoredMember[]; year: number }) {
   const selected = members.find((m) => m.uid === open)
   const back = (msg?: string) => { setOpen(null); setNotice(msg ?? null); window.scrollTo(0, 0) }
   const show = (uid: string) => { setOpen(uid); window.scrollTo(0, 0) }
-  if (selected) return <MemberDetail m={selected} members={members} year={year} onBack={back} />
+  if (selected) return <MemberDetail m={selected} members={members} requests={requests} year={year} onBack={back} />
   if (adding) return <AddMember year={year} onDone={() => setAdding(false)} />
   const list = members.filter((m) => m.name.toLowerCase().includes(q.trim().toLowerCase()))
   return (
@@ -109,7 +110,9 @@ function AddMember({ year, onDone }: { year: number; onDone: () => void }) {
   )
 }
 
-function MemberDetail({ m, members, year, onBack }: { m: StoredMember; members: StoredMember[]; year: number; onBack: (notice?: string) => void }) {
+function MemberDetail({ m, members, requests, year, onBack }: {
+  m: StoredMember; members: StoredMember[]; requests: LoanRequest[]; year: number; onBack: (notice?: string) => void
+}) {
   const [paid, setPaid] = useState(m.paid.map(String))
   const [interest, setInterest] = useState(m.interest.map(String))
   const [heads, setHeads] = useState(String(m.heads))
@@ -141,7 +144,8 @@ function MemberDetail({ m, members, year, onBack }: { m: StoredMember; members: 
 
   return (
     <section>
-      <MySavings m={m} coop={coop} year={year} action={<button className="link" onClick={() => onBack()}>Back</button>} />
+      <MySavings m={m} coop={coop} year={year} action={<button className="link" onClick={() => onBack()}>Back</button>}
+        extra={<UnpaidLoans m={m} requests={requests} />} />
       <div className="section">
         <h2>Record payments and interest</h2>
         <div className="field"><label htmlFor="eh">Heads</label><input id="eh" inputMode="numeric" value={heads} onChange={(e) => setHeads(e.target.value)} /></div>
@@ -183,6 +187,54 @@ function MemberDetail({ m, members, year, onBack }: { m: StoredMember; members: 
         </div>
       )}
     </section>
+  )
+}
+
+/** Total unpaid loans: app loans approved but not yet paid, plus the balance typed from the old Borrowers sheet. */
+function UnpaidLoans({ m, requests }: { m: StoredMember; requests: LoanRequest[] }) {
+  const u = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0)
+  const [balance, setBalance] = useState(String(m.sheetLoanBalance ?? 0))
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const run = async (key: string, fn: () => Promise<unknown>) => {
+    setBusy(key); setError(null)
+    try { await fn(); setEditing(false) } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
+  }
+  return (
+    <div className={`unpaid ${u.total > 0 ? 'owing' : ''}`}>
+      <div className="unpaid-head">
+        <span>Unpaid loans</span>
+        <b>{peso(u.total)}</b>
+      </div>
+      <ul className="unpaid-list">
+        {u.loans.map((r) => (
+          <li key={r.id}>
+            <span>{peso(r.amount)} · approved {new Date(r.decidedAt ?? r.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}<small>{r.quote}</small></span>
+            <button className="btn-mini" disabled={busy === r.id}
+              onClick={() => window.confirm(`Mark ${m.name}'s ${peso(r.amount)} loan as fully paid?`) && run(r.id, () => markLoanPaid(r.id))}>
+              Mark as paid
+            </button>
+          </li>
+        ))}
+        <li>
+          {editing ? (
+            <span className="balance-edit">
+              <label htmlFor="sb">From the old sheet (₱)</label>
+              <input id="sb" inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} />
+              <button className="btn" disabled={busy === 'sheet'} onClick={() => run('sheet', () => saveSheetLoanBalance(m.uid, Number(balance.replace(/[^\d.]/g, '')) || 0))}>Save</button>
+              <button className="copy" onClick={() => { setEditing(false); setBalance(String(m.sheetLoanBalance ?? 0)) }}>Cancel</button>
+            </span>
+          ) : (
+            <>
+              <span>{peso(u.sheetBalance)} from the old Borrowers sheet</span>
+              <button className="btn-mini" onClick={() => setEditing(true)}>Edit</button>
+            </>
+          )}
+        </li>
+      </ul>
+      {error && <p className="alert" role="alert">{error}</p>}
+    </div>
   )
 }
 

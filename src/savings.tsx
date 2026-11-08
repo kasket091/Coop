@@ -5,7 +5,7 @@ import { closedMonths, loanLimit, memberSummary, minAnnualLoan, missedOwed, type
 import type { Summary } from './store'
 
 /** One member's locked year. Used by the member's Savings tab and the admin's member view. */
-export function MySavings({ m, coop, year, action }: { m: Member; coop: CoopSummary; year: number; action?: ReactNode }) {
+export function MySavings({ m, coop, year, action, extra }: { m: Member; coop: CoopSummary; year: number; action?: ReactNode; extra?: ReactNode }) {
   const today = new Date()
   const s = memberSummary(m, coop, today, year)
   const closed = closedMonths(today, year)
@@ -19,6 +19,7 @@ export function MySavings({ m, coop, year, action }: { m: Member; coop: CoopSumm
         {action}
       </div>
       <p className="plan">{m.heads} heads · {peso(s.monthlyDue)} a month · locked until December</p>
+      {extra}
 
       <div className="saved">
         <div className="big">{peso(s.saved)}</div>

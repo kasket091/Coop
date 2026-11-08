@@ -17,7 +17,7 @@ import { importRows, publicSummary, type Summary } from './summary'
 
 export type { Summary }
 /** `rebate` is this member's own top-borrower rebate (0 unless they are the top borrower). */
-export type StoredMember = Member & { uid: string; cycle: number; createdAt: number; hasLogin: boolean; loginKey?: string; email?: string; rebate?: number }
+export type StoredMember = Member & { uid: string; cycle: number; createdAt: number; hasLogin: boolean; loginKey?: string; email?: string; rebate?: number; sheetLoanBalance?: number }
 export type Session = { kind: 'admin' } | { kind: 'member'; uid: string } | null
 
 const WRONG = 'Name or password is wrong.'
@@ -123,6 +123,14 @@ export const adminDecide = (id: string, status: 'approved' | 'declined', direct 
     tx.update(ref, { status, decidedAt: Date.now(), ...(direct ? { directApproval: true } : {}) })
   })
 
+/** Only an approved loan can be marked paid. */
+export const markLoanPaid = (id: string) =>
+  runTransaction(db, async (tx) => {
+    const ref = doc(db, 'loanRequests', id)
+    if ((await tx.get(ref)).data()?.status !== 'approved') throw new Error('Only an approved loan can be marked paid.')
+    tx.update(ref, { status: 'paid', paidAt: Date.now() })
+  })
+
 // ---------- admin ----------
 export const watchAllMembers = (cb: (m: StoredMember[]) => void) =>
   onSnapshot(collection(db, 'members'), (s) =>
@@ -201,6 +209,9 @@ export async function renameMember(m: StoredMember, newName: string): Promise<vo
   if (m.founder) batch.set(doc(db, 'founders', m.uid), { name })
   await batch.commit()
 }
+
+/** The member's unpaid balance carried over from the old Borrowers sheet, typed by the admin. */
+export const saveSheetLoanBalance = (uid: string, amount: number) => updateDoc(doc(db, 'members', uid), { sheetLoanBalance: amount })
 
 export async function savePayments(uid: string, paid: number[], interest: number[], heads: number): Promise<void> {
   await updateDoc(doc(db, 'members', uid), { paid, interest, heads })

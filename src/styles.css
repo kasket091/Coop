@@ -211,3 +211,18 @@ main.no-tabs { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
 }
 .btn-mini:hover { background: var(--cream-2); }
 .btn-mini:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* admin member page: unpaid loans, right under the member's plan line */
+.unpaid { margin-top: 14px; padding: 12px 16px; border-radius: var(--radius); background: var(--cream); border: 1px solid var(--line); }
+.unpaid.owing { background: var(--red-wash); border-color: #e6c3c0; }
+.unpaid-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.unpaid-head span { font-weight: 700; color: var(--navy); }
+.unpaid-head b { font-family: var(--display); font-size: 28px; font-weight: 400; color: var(--navy); }
+.unpaid.owing .unpaid-head b { color: var(--red); }
+.unpaid-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.unpaid-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.unpaid-list li > span { display: grid; }
+.unpaid-list small { font-size: 13px; color: var(--muted); }
+.balance-edit { display: grid; gap: 8px; width: 100%; }
+.balance-edit input { min-height: 44px; padding: 0 12px; border: 1.5px solid var(--line); border-radius: var(--radius); background: #fff; }
+.balance-edit .btn, .balance-edit .copy { width: 100%; }

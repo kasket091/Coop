@@ -12,9 +12,10 @@ export type LoanRequest = {
   quote: string
   comakers: Record<string, { name: string; status: CoStatus; at?: number }>
   comakerIds: string[]
-  status: 'pending' | 'approved' | 'declined' | 'withdrawn'
+  status: 'pending' | 'approved' | 'declined' | 'withdrawn' | 'paid'
   createdAt: number
   decidedAt?: number
+  paidAt?: number
   /** set when the admin approved without waiting for both co-makers */
   directApproval?: boolean
 }
@@ -59,8 +60,16 @@ const coStatuses = (r: LoanRequest) => r.comakerIds.map((id) => r.comakers[id]?.
 export const canAdminApprove = (r: LoanRequest) => r.status === 'pending' && coStatuses(r).every((s) => s === 'approved')
 
 export function requestStage(r: LoanRequest): string {
+  if (r.status === 'paid') return 'Paid'
   if (r.status === 'approved') return 'Approved'
   if (r.status === 'declined') return 'Declined'
   if (r.status === 'withdrawn') return 'Withdrawn'
   return canAdminApprove(r) ? 'Waiting for admin' : 'Waiting for co-makers'
+}
+
+/** A member's unpaid loans: app loans approved but not marked paid, plus the balance typed from the old sheet. */
+export function unpaidLoans(all: LoanRequest[], memberId: string, sheetBalance = 0) {
+  const loans = all.filter((r) => r.borrowerId === memberId && r.status === 'approved')
+  const appTotal = loans.reduce((t, r) => t + r.amount, 0)
+  return { loans, appTotal, sheetBalance, total: appTotal + sheetBalance }
 }

@@ -13,8 +13,10 @@ const fmtDate = (ms: number) => new Date(ms).toLocaleDateString('en-PH', { month
 export function LoansTab({ me, year, mine }: { me: StoredMember; year: number; mine: LoanRequest[] }) {
   return (
     <section>
-      <RequestForm me={me} year={year} hasPending={mine.some((r) => r.status === 'pending')} />
       <MyRequests mine={mine} />
+      <div className={mine.length ? 'section' : undefined}>
+        <RequestForm me={me} year={year} hasPending={mine.some((r) => r.status === 'pending')} />
+      </div>
       <div className="section"><Calculator member={me} year={year} /></div>
     </section>
   )
@@ -126,8 +128,8 @@ function MyRequests({ mine }: { mine: LoanRequest[] }) {
   if (!mine.length) return null
   const withdraw = (id: string) => { setError(null); withdrawRequest(id).catch(() => setError("Couldn't withdraw. Check your connection.")) }
   return (
-    <div className="section">
-      <h2>My requests</h2>
+    <div>
+      <h1 style={{ fontSize: 22 }}>My requests</h1>
       {error && <p className="alert" role="alert">{error}</p>}
       <ul className="requests">
         {mine.map((r) => (
