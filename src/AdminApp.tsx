@@ -1,59 +1,68 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { startingPassword } from './accounts'
+import { RECRUITS, startingPassword } from './accounts'
+import { Dashboard } from './Dashboard'
 import { MONTHS, peso } from './format'
-import { IconCoop, IconLoans, IconSavings } from './icons'
-import { RequestCard } from './member-tabs'
+import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
+import { RequestCard, TxnList } from './member-tabs'
 import { balanceOf, canAdminApprove, customPayment, monthInterest, unpaidLoans, type LoanRequest } from './requests'
 import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, adminDecide, carryOverLoan, deleteMember, importFromSheet, loanCustomPayment, markLoanPaid, payLoanInterest, recomputeSummary, renameMember, resetLogin, savePayments,
-  saveSheetLoanBalance,
-  signOutUser, startCycle, watchAllMembers, watchAllRequests, watchSummary, type StoredMember, type Summary,
+  addMember, addTransaction, adminDecide, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
+  payLoanInterest, previewResync, recomputeSummary, renameMember, resetLogin, runResync, saveHeads, saveSheetLoanBalance,
+  signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchMigrated, watchSummary,
+  type ResyncRow, type StoredMember, type Summary, type Txn,
 } from './store'
 
-type Tab = 'members' | 'requests' | 'coop'
+type Tab = 'members' | 'loans' | 'requests' | 'dashboard' | 'coop'
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
 
 export function AdminApp({ year }: { year: number }) {
   const [members, setMembers] = useState<StoredMember[] | null>(null)
   const [requests, setRequests] = useState<LoanRequest[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
+  const [txns, setTxns] = useState<Txn[]>([])
   const [tab, setTab] = useState<Tab>('members')
   useEffect(() => watchAllMembers(setMembers), [])
   useEffect(() => watchAllRequests(setRequests), [])
   useEffect(() => watchSummary(setSummary), [])
+  useEffect(() => watchAllTransactions(setTxns), [])
 
   const ready = requests.filter(canAdminApprove).length
   const tabs: TabDef<Tab>[] = [
     { id: 'members', label: 'Members', Icon: IconSavings },
+    { id: 'loans', label: 'Loans', Icon: IconPay },
     { id: 'requests', label: 'Requests', Icon: IconLoans, badge: ready },
+    { id: 'dashboard', label: 'Dashboard', Icon: IconChart },
     { id: 'coop', label: 'Coop', Icon: IconCoop },
   ]
   return (
     <Shell year={year} tabs={tabs} current={tab} onTab={setTab}>
       <p className="admin-flag">Admin</p>
       {!members ? <Loading />
-        : tab === 'members' ? <Members members={members} requests={requests} year={year} />
-        : tab === 'requests' ? <Requests requests={requests} />
+        : tab === 'members' ? <Members members={members} requests={requests} txns={txns} year={year} />
+        : tab === 'loans' ? <LoansAdmin requests={requests} members={members} />
+        : tab === 'requests' ? <Requests requests={requests} year={year} />
+        : tab === 'dashboard' ? <Dashboard members={members} year={year} />
         : <CoopAdmin members={members} summary={summary} year={year} />}
     </Shell>
   )
 }
 
 // ---------- members ----------
-function Members({ members, requests, year }: { members: StoredMember[]; requests: LoanRequest[]; year: number }) {
+function Members({ members, requests, txns, year }: { members: StoredMember[]; requests: LoanRequest[]; txns: Txn[]; year: number }) {
   const [q, setQ] = useState('')
+  const [boardOnly, setBoardOnly] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const selected = members.find((m) => m.uid === open)
   const back = (msg?: string) => { setOpen(null); setNotice(msg ?? null); window.scrollTo(0, 0) }
   const show = (uid: string) => { setOpen(uid); window.scrollTo(0, 0) }
-  if (selected) return <MemberDetail m={selected} members={members} requests={requests} year={year} onBack={back} />
+  if (selected) return <MemberDetail m={selected} members={members} requests={requests} txns={txns.filter((t) => t.memberId === selected.uid)} year={year} onBack={back} onOpen={show} />
   if (adding) return <AddMember year={year} onDone={() => setAdding(false)} />
-  const list = members.filter((m) => m.name.toLowerCase().includes(q.trim().toLowerCase()))
+  const list = members.filter((m) => (!boardOnly || m.founder) && m.name.toLowerCase().includes(q.trim().toLowerCase()))
   return (
     <section className="picker">
       <div className="who"><h1>Members</h1><button className="btn" onClick={() => setAdding(true)}>Add member</button></div>
@@ -61,6 +70,7 @@ function Members({ members, requests, year }: { members: StoredMember[]; request
       {notice && <p className="success" role="status">{notice}</p>}
       <div className="field"><label htmlFor="mq">Search</label>
         <input id="mq" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" /></div>
+      <label className="check"><input type="checkbox" checked={boardOnly} onChange={(e) => setBoardOnly(e.target.checked)} /> Board members only</label>
       <ul className="panel">
         {list.map((m) => (
           <li key={m.uid}><button onClick={() => show(m.uid)}>
@@ -70,7 +80,7 @@ function Members({ members, requests, year }: { members: StoredMember[]; request
         ))}
         {!list.length && <li className="note" style={{ padding: 16 }}>{members.length ? `No member named “${q}”.` : 'No members yet. Add one, or import the 2026 sheet from the Coop tab.'}</li>}
       </ul>
-      <p className="note">★ founding member (can be a co-maker)</p>
+      <p className="note">★ board member</p>
     </section>
   )
 }
@@ -110,31 +120,21 @@ function AddMember({ year, onDone }: { year: number; onDone: () => void }) {
   )
 }
 
-function MemberDetail({ m, members, requests, year, onBack }: {
-  m: StoredMember; members: StoredMember[]; requests: LoanRequest[]; year: number; onBack: (notice?: string) => void
+function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
+  m: StoredMember; members: StoredMember[]; requests: LoanRequest[]; txns: Txn[]; year: number
+  onBack: (notice?: string) => void; onOpen: (uid: string) => void
 }) {
-  const [paid, setPaid] = useState(m.paid.map(String))
-  const [interest, setInterest] = useState(m.interest.map(String))
   const [heads, setHeads] = useState(String(m.heads))
-  // refresh the editor when the record changes elsewhere (e.g. Pay interest), so Save never writes back stale numbers
-  const recordKey = JSON.stringify([m.paid, m.interest, m.heads])
-  useEffect(() => { setPaid(m.paid.map(String)); setInterest(m.interest.map(String)); setHeads(String(m.heads)) }, [recordKey])
+  useEffect(() => setHeads(String(m.heads)), [m.heads])
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<'delete' | 'reset' | 'rename' | null>(null)
   const [typed, setTyped] = useState('')
   const coop = useMemo(() => coopSummary(members), [members])
+  const recruits = m.founder ? members.filter((x) => x.recruiterId === m.uid) : []
+  const recruiter = members.find((x) => x.uid === m.recruiterId)
+  const expected = m.founder ? RECRUITS[m.name] ?? [] : []
 
-  const num = (s: string) => Number(s.replace(/[^\d.]/g, '')) || 0
-  const save = async () => {
-    setBusy(true); setMsg(null)
-    try {
-      const p = paid.map(num), i = interest.map(num), h = num(heads)
-      await savePayments(m.uid, p, i, h)
-      await recomputeSummary(members.map((x) => (x.uid === m.uid ? { ...x, paid: p, interest: i, heads: h } : x)))
-      setMsg({ ok: true, text: 'Saved. Coop totals updated.' })
-    } catch { setMsg({ ok: false, text: "Couldn't save. Check your connection." }) } finally { setBusy(false) }
-  }
   const act = async () => {
     setBusy(true); setMsg(null)
     try {
@@ -144,28 +144,52 @@ function MemberDetail({ m, members, requests, year, onBack }: {
       setConfirm(null); setTyped('')
     } catch (err) { setMsg({ ok: false, text: (err as Error).message }) } finally { setBusy(false) }
   }
+  const saveH = async () => {
+    const h = Number(heads)
+    if (!Number.isInteger(h) || h < 0 || h > 14) return setMsg({ ok: false, text: 'Heads must be a whole number from 0 to 14.' })
+    setBusy(true); setMsg(null)
+    try { await saveHeads(m.uid, h); await recomputeSummary(members.map((x) => (x.uid === m.uid ? { ...x, heads: h } : x))); setMsg({ ok: true, text: 'Heads saved.' }) }
+    catch { setMsg({ ok: false, text: "Couldn't save. Check your connection." }) } finally { setBusy(false) }
+  }
+  const askVoid = async (t: Txn) => {
+    const reason = window.prompt(`Void this ${t.kind} entry${t.amount ? ` of ${peso(t.amount)}` : ''}? Type the reason:`)
+    if (!reason) return
+    setMsg(null)
+    try { await voidTransaction(t, reason, year); setMsg({ ok: true, text: 'Voided. Totals updated.' }) } catch (err) { setMsg({ ok: false, text: (err as Error).message }) }
+  }
 
   return (
     <section>
       <MySavings m={m} coop={coop} year={year} action={<button className="link" onClick={() => onBack()}>Back</button>}
-        extra={<UnpaidLoans m={m} requests={requests} year={year} />} />
+        extra={<>
+          {recruiter && <p className="note" style={{ marginTop: 4 }}>Recruited by <button className="link inline" onClick={() => onOpen(recruiter.uid)}>{recruiter.name}</button> (their co-maker)</p>}
+          <UnpaidLoans m={m} requests={requests} year={year} />
+        </>} />
+
+      {m.founder && (
+        <div className="section">
+          <h2>Recruited by {m.name.split(' ')[0]} ({recruits.length})</h2>
+          {!recruits.length ? <p className="note">{expected.length ? 'Not linked yet. Run the re-sync in the Coop tab.' : 'No recruits this year.'}</p> : (
+            <ul className="panel recruits">
+              {recruits.map((r) => (
+                <li key={r.uid}><button onClick={() => onOpen(r.uid)}>{r.name}<span>{r.heads} heads · {peso(r.paid.reduce((a, b) => a + b, 0))}</span></button></li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       <div className="section">
-        <h2>Record payments and interest</h2>
-        <div className="field"><label htmlFor="eh">Heads</label><input id="eh" inputMode="numeric" value={heads} onChange={(e) => setHeads(e.target.value)} /></div>
-        <table className="ledger panel">
-          <thead><tr><th scope="col">Month</th><th scope="col">Savings paid</th><th scope="col">Interest paid</th></tr></thead>
-          <tbody>
-            {MONTHS.map((mo, i) => (
-              <tr key={mo}>
-                <th scope="row">{mo}</th>
-                <td><input aria-label={`${mo} savings`} inputMode="decimal" value={paid[i]} onChange={(e) => setPaid((p) => p.map((v, j) => (j === i ? e.target.value : v)))} /></td>
-                <td><input aria-label={`${mo} interest`} inputMode="decimal" value={interest[i]} onChange={(e) => setInterest((p) => p.map((v, j) => (j === i ? e.target.value : v)))} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <h2>Transactions</h2>
+        <AddTxn m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
         {msg && <p className={msg.ok ? 'success' : 'alert'} role="status">{msg.text}</p>}
-        <button className="btn wide" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+        <TxnList txns={txns} onVoid={askVoid} />
+      </div>
+
+      <div className="section">
+        <h2>Heads</h2>
+        <div className="field"><label htmlFor="eh">Heads (locked until December)</label><input id="eh" inputMode="numeric" value={heads} onChange={(e) => setHeads(e.target.value)} /></div>
+        <button className="copy wide" disabled={busy || heads === String(m.heads)} onClick={saveH}>Save heads</button>
       </div>
 
       {m.hasLogin && (
@@ -190,6 +214,41 @@ function MemberDetail({ m, members, requests, year, onBack }: {
         </div>
       )}
     </section>
+  )
+}
+
+/** Record savings or interest received; it is added to the history (mistakes are voided, never edited). */
+function AddTxn({ m, year, onDone }: { m: StoredMember; year: number; onDone: (msg: string) => void }) {
+  const [kind, setKind] = useState<'savings' | 'interest'>('savings')
+  const [month, setMonth] = useState(ledgerMonth(year))
+  const [amount, setAmount] = useState(String(m.heads * 500))
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    const n = Number(amount.replace(/[^\d.]/g, '')) || 0
+    setBusy(true); setError(null)
+    try {
+      await addTransaction(m, kind, n, month, note.trim(), year)
+      onDone(`Recorded ${peso(n)} ${kind} for ${MONTHS[month]}.`); setNote('')
+    } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
+  }
+  return (
+    <form className="add-txn" onSubmit={submit}>
+      <div className="add-txn-row">
+        <div className="field"><label htmlFor="tk">Type</label>
+          <select id="tk" value={kind} onChange={(e) => { const k = e.target.value as 'savings' | 'interest'; setKind(k); setAmount(k === 'savings' ? String(m.heads * 500) : '') }}>
+            <option value="savings">Savings</option><option value="interest">Interest</option>
+          </select></div>
+        <div className="field"><label htmlFor="tm">For month</label>
+          <select id="tm" value={month} onChange={(e) => setMonth(Number(e.target.value))}>{MONTHS.map((mo, i) => <option key={mo} value={i}>{mo}</option>)}</select></div>
+        <div className="field"><label htmlFor="ta">Amount (₱)</label><input id="ta" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+      </div>
+      <div className="field"><label htmlFor="tn">Note (optional)</label><input id="tn" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. paid by GCash" /></div>
+      {error && <p className="alert" role="alert">{error}</p>}
+      <button className="btn wide" disabled={busy}>{busy ? 'Recording…' : 'Record transaction'}</button>
+    </form>
   )
 }
 
@@ -253,7 +312,7 @@ function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanReq
             <span className="balance-edit">
               <label htmlFor="sb">From the old sheet (₱)</label>
               <input id="sb" inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} />
-              <button className="btn" disabled={busy === 'sheet'} onClick={() => run('sheet', () => saveSheetLoanBalance(m.uid, Number(balance.replace(/[^\d.]/g, '')) || 0))}>Save</button>
+              <button className="btn" disabled={busy === 'sheet'} onClick={() => run('sheet', () => saveSheetLoanBalance(m, Number(balance.replace(/[^\d.]/g, '')) || 0, year))}>Save</button>
               <button className="copy" onClick={() => { setEditing(false); setBalance(String(m.sheetLoanBalance ?? 0)) }}>Cancel</button>
             </span>
           ) : (
@@ -299,25 +358,25 @@ function Confirm({ text, busy, onYes, onNo }: { text: string; busy: boolean; onY
 }
 
 // ---------- loan requests ----------
-function Requests({ requests }: { requests: LoanRequest[] }) {
+function Requests({ requests, year }: { requests: LoanRequest[]; year: number }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const pending = requests.filter((r) => r.status === 'pending')
   const closed = requests.filter((r) => r.status !== 'pending')
   const decide = async (id: string, s: 'approved' | 'declined', direct = false) => {
     setBusy(id); setError(null)
-    try { await adminDecide(id, s, direct) } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
+    try { await adminDecide(id, s, year, direct) } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
   }
   return (
     <section>
       <h1 style={{ fontSize: 22 }}>Loan requests</h1>
-      <p className="plan">Approve unlocks once both co-makers have approved (✓).</p>
+      <p className="plan">Approve unlocks once every co-maker has approved (✓). Founders within their limit and deposit loans need none.</p>
       {error && <p className="alert" role="alert">{error}</p>}
       {!pending.length && <p className="note section">No pending requests. When a member asks for a loan it appears here, with a ✓ beside each co-maker who approves.</p>}
       <ul className="requests">
         {pending.map((r) => (
           <RequestCard key={r.id} r={r}>
-            <p className="asker">Borrower: <b>{r.borrowerName}</b></p>
+            <p className="asker">Borrower: <b>{r.borrowerName}</b>{r.overLimit ? ' · over their limit' : ''}{!r.comakerIds.length ? ' · no co-maker needed' : ''}</p>
             <div className="actions">
               <button className="btn" disabled={!canAdminApprove(r) || busy === r.id} onClick={() => decide(r.id, 'approved')}>Approve loan</button>
               <button className="copy" disabled={busy === r.id} onClick={() => decide(r.id, 'declined')}>Decline</button>
@@ -341,12 +400,48 @@ function Requests({ requests }: { requests: LoanRequest[] }) {
   )
 }
 
+// ---------- loans: active and closed ----------
+function LoansAdmin({ requests, members }: { requests: LoanRequest[]; members: StoredMember[] }) {
+  const [view, setView] = useState<'active' | 'closed'>('active')
+  const active = requests.filter((r) => r.status === 'approved')
+  const closed = requests.filter((r) => r.status === 'paid')
+  const list = view === 'active' ? active : closed
+  const total = active.reduce((t, r) => t + balanceOf(r), 0)
+  const sheet = members.reduce((t, m) => t + (m.sheetLoanBalance ?? 0), 0)
+  return (
+    <section>
+      <h1 style={{ fontSize: 22 }}>Loans</h1>
+      <p className="plan">{peso(total)} owed on {active.length} app loan{active.length === 1 ? '' : 's'}{sheet ? ` + ${peso(sheet)} from the old sheet` : ''}</p>
+      <div className="segmented" role="tablist" aria-label="Loan category">
+        <button role="tab" aria-selected={view === 'active'} onClick={() => setView('active')}>Active Loans ({active.length})</button>
+        <button role="tab" aria-selected={view === 'closed'} onClick={() => setView('closed')}>Closed Loans ({closed.length})</button>
+      </div>
+      {!list.length ? <p className="note section">{view === 'active' ? 'No active loans.' : 'No closed loans yet.'}</p> : (
+        <ul className="requests">
+          {list.map((r) => (
+            <RequestCard key={r.id} r={r}>
+              <p className="asker">Borrower: <b>{r.borrowerName}</b></p>
+              {view === 'active'
+                ? <p className="note">Still owed <b>{peso(balanceOf(r))}</b>{monthInterest(r) > 0 ? ` · this month's interest ${peso(monthInterest(r))}` : ''}. Record payments on the member's page.</p>
+                : <p className="note">Paid off {r.paidAt ? new Date(r.paidAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</p>}
+            </RequestCard>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 // ---------- coop, import, new cycle ----------
 function CoopAdmin({ members, summary, year }: { members: StoredMember[]; summary: Summary | null; year: number }) {
   const [progress, setProgress] = useState<string | null>(null)
   const [typed, setTyped] = useState('')
   const [error, setError] = useState<string | null>(null)
   const next = year + 1
+  const [migrated, setMigrated] = useState<boolean | null>(null)
+  const [preview, setPreview] = useState<ResyncRow[] | null>(null)
+  const [syncTyped, setSyncTyped] = useState('')
+  useEffect(() => watchMigrated(setMigrated), [])
   const run = async (fn: () => Promise<unknown>) => {
     setError(null)
     try { await fn() } catch (err) { setError((err as Error).message) } finally { setProgress(null) }
@@ -358,7 +453,33 @@ function CoopAdmin({ members, summary, year }: { members: StoredMember[]; summar
       {summary && <p className="note">Top borrower: {coopSummary(members).top?.name ?? 'none yet'} (only the admin sees this)</p>}
       <button className="copy wide section" onClick={() => run(() => recomputeSummary(members))}>Recalculate totals</button>
 
-      {year === 2026 && (
+      {migrated === false && year === 2026 && (
+        <div className="section">
+          <h2>Switch to transaction history (one time)</h2>
+          <p className="note">Turns the Google Sheet's current savings and interest into opening transactions, links every recruit to their recruiter, and marks the 11 board members. After this, the sheet is no longer read.</p>
+          {!preview ? (
+            <button className="btn wide" disabled={!!progress} onClick={() => run(async () => { setProgress('Reading the sheet…'); setPreview(await previewResync()) })}>{progress ?? 'Preview the re-sync'}</button>
+          ) : (
+            <>
+              <table className="resync">
+                <thead><tr><th>Member</th><th>Savings (app → sheet)</th><th>Interest (app → sheet)</th></tr></thead>
+                <tbody>
+                  {preview.filter((r) => r.isNew || r.savingsNow !== r.savingsSheet || r.interestNow !== r.interestSheet).map((r) => (
+                    <tr key={r.name}><td>{r.name}{r.isNew ? ' (new)' : ''}</td>
+                      <td>{peso(r.savingsNow)} → {peso(r.savingsSheet)}</td><td>{peso(r.interestNow)} → {peso(r.interestSheet)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="note">{preview.length} members on the sheet; the rows above change. Everyone else stays the same.</p>
+              <div className="field"><label htmlFor="sy">Type <b>SYNC</b> to run it</label><input id="sy" value={syncTyped} onChange={(e) => setSyncTyped(e.target.value)} autoComplete="off" /></div>
+              <button className="btn wide" disabled={syncTyped.trim() !== 'SYNC' || !!progress} onClick={() => run(async () => { await runResync(setProgress); setPreview(null) })}>{progress ?? 'Run the re-sync'}</button>
+            </>
+          )}
+        </div>
+      )}
+      {migrated && <p className="note section">Transaction history is on. Record payments on each member's page.</p>}
+
+      {members.length === 0 && year === 2026 && (
         <div className="section">
           <h2>Import the 2026 sheet</h2>
           <p className="note">Creates every member's login and copies their savings and interest from the Google Sheet. If it stops partway, run it again: members already imported are skipped.</p>

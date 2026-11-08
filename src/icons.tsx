@@ -19,6 +19,9 @@ export const IconBell = () => (
 export const IconUser = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...S}><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" /></svg>
 )
+export const IconChart = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" {...S}><path d="M4 20h16" /><path d="M7 16v-5M12 16V7M17 16v-8" /></svg>
+)
 export const IconCheck = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...S} strokeWidth={3}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
 )
