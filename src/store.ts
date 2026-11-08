@@ -320,7 +320,7 @@ async function createLogin(name: string): Promise<{ uid: string; email: string }
   }
 }
 
-type NewMember = { name: string; heads: number; founder: boolean; paid?: number[]; interest?: number[]; id?: number; year?: number }
+type NewMember = { name: string; heads: number; founder: boolean; paid?: number[]; interest?: number[]; id?: number; year?: number; recruiterId?: string }
 
 export async function addMember(m: NewMember, recompute = true): Promise<string> {
   const name = m.name.trim().replace(/\s+/g, ' ')
@@ -331,6 +331,7 @@ export async function addMember(m: NewMember, recompute = true): Promise<string>
   const record: Omit<StoredMember, 'uid'> = {
     id: m.id ?? Date.now(), name, heads: m.heads, founder: m.founder, paid: m.paid ?? zeros(), interest: m.interest ?? zeros(),
     cycle: m.year ?? DEFAULT_CYCLE_YEAR, createdAt: Date.now(), hasLogin: true, loginKey: key, email, rebate: 0,
+    ...(m.recruiterId && !m.founder ? { recruiterId: m.recruiterId } : {}),
   }
   batch.set(doc(db, 'members', uid), record)
   batch.set(doc(db, 'logins', key), { email, name })
@@ -536,6 +537,15 @@ export async function saveSheetLoanBalance(m: StoredMember, amount: number, year
   batch.update(doc(db, 'members', m.uid), { sheetLoanBalance: amount })
   batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0,
     note: `Old sheet loan balance changed ${php(m.sheetLoanBalance ?? 0)} → ${php(amount)}` }, year, Date.now()))
+  await batch.commit()
+}
+
+/** Sets (or clears) who recruited a member: that board member is their one co-maker. Logged in their history. */
+export async function setRecruiter(m: StoredMember, recruiter: StoredMember | null, year: number) {
+  const batch = writeBatch(db)
+  batch.update(doc(db, 'members', m.uid), { recruiterId: recruiter ? recruiter.uid : deleteField() })
+  batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0,
+    note: recruiter ? `Recruiter set to ${recruiter.name}` : 'Recruiter removed' }, year, Date.now()))
   await batch.commit()
 }
 

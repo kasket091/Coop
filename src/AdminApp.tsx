@@ -16,7 +16,7 @@ import {
   addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, markCarryover, restoreMember, terminateMember, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, recomputeSummary, renameMember, resetLogin, saveHeads, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
-  type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers,
+  type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers, setRecruiter,
 } from './store'
 
 type Tab = 'members' | 'loans' | 'requests' | 'dashboard' | 'coop'
@@ -65,7 +65,7 @@ function Members({ members, requests, txns, year }: { members: StoredMember[]; r
   const back = (msg?: string) => { setOpen(null); setNotice(msg ?? null); window.scrollTo(0, 0) }
   const show = (uid: string) => { setOpen(uid); window.scrollTo(0, 0) }
   if (selected) return <MemberDetail m={selected} members={members} requests={requests} txns={txns.filter((t) => t.memberId === selected.uid)} year={year} onBack={back} onOpen={show} />
-  if (adding) return <AddMember year={year} onDone={() => setAdding(false)} />
+  if (adding) return <AddMember year={year} board={members.filter((x) => x.founder && x.heads > 0)} onDone={() => setAdding(false)} />
   const list = members.filter((m) => (!boardOnly || m.founder) && m.name.toLowerCase().includes(q.trim().toLowerCase()))
   return (
     <section className="picker">
@@ -82,17 +82,18 @@ function Members({ members, requests, txns, year }: { members: StoredMember[]; r
             <span>{m.terminated ? 'terminated' : m.heads ? `${m.heads} heads · ${peso(sum(m.paid))}` : 'left · interest only'}</span>
           </button></li>
         ))}
-        {!list.length && <li className="note" style={{ padding: 16 }}>{members.length ? `No member named “${q}”.` : 'No members yet. Add one, or import the 2026 sheet from the Coop tab.'}</li>}
+        {!list.length && <li className="note" style={{ padding: 16 }}>{members.length ? `No member named “${q}”.` : 'No members yet. Tap Add member to start this cycle.'}</li>}
       </ul>
       <p className="note">★ board member</p>
     </section>
   )
 }
 
-function AddMember({ year, onDone }: { year: number; onDone: () => void }) {
+function AddMember({ year, board, onDone }: { year: number; board: StoredMember[]; onDone: () => void }) {
   const [name, setName] = useState('')
   const [heads, setHeads] = useState('2')
   const [founder, setFounder] = useState(false)
+  const [recruiterId, setRecruiterId] = useState('')
   const [done, setDone] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -100,8 +101,9 @@ function AddMember({ year, onDone }: { year: number; onDone: () => void }) {
     e.preventDefault()
     const h = Number(heads)
     if (!Number.isInteger(h) || h < 2 || h > 14) return setError('Heads must be a whole number from 2 to 14.')
+    if (!founder && !recruiterId) return setError('Choose who recruited them (their co-maker), or tick Board member.')
     setBusy(true); setError(null)
-    try { await addMember({ name, heads: h, founder, year }); setDone(name.trim()) } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
+    try { await addMember({ name, heads: h, founder, year, recruiterId: founder ? undefined : recruiterId }); setDone(name.trim()) } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
   }
   if (done) {
     return (
@@ -117,7 +119,14 @@ function AddMember({ year, onDone }: { year: number; onDone: () => void }) {
       <div className="who"><h1 style={{ fontSize: 22 }}>Add member</h1><button type="button" className="link" onClick={onDone}>Cancel</button></div>
       <div className="field"><label htmlFor="an">Full name</label><input id="an" value={name} onChange={(e) => setName(e.target.value)} required autoCapitalize="words" /></div>
       <div className="field"><label htmlFor="ah">Heads (locked until December)</label><input id="ah" inputMode="numeric" value={heads} onChange={(e) => setHeads(e.target.value)} required /></div>
-      <label className="check"><input type="checkbox" checked={founder} onChange={(e) => setFounder(e.target.checked)} /> Founding member (can be a co-maker)</label>
+      <label className="check"><input type="checkbox" checked={founder} onChange={(e) => setFounder(e.target.checked)} /> Board member (can be a co-maker; needs no recruiter)</label>
+      {!founder && (
+        <div className="field"><label htmlFor="ar">Recruited by (their co-maker)</label>
+          <select id="ar" value={recruiterId} onChange={(e) => setRecruiterId(e.target.value)} required>
+            <option value="">Choose a board member</option>
+            {board.map((b) => <option key={b.uid} value={b.uid}>{b.name}</option>)}
+          </select></div>
+      )}
       {error && <p className="alert" role="alert">{error}</p>}
       <button className="btn wide" disabled={busy}>{busy ? 'Adding…' : 'Add member'}</button>
     </form>
@@ -182,7 +191,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
           {m.terminated
             ? <p className="alert" role="status">Terminated {new Date(m.terminated.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}. <button className="link inline" onClick={restore}>Restore account</button></p>
             : flag && <div className="alert" role="status"><b>Should be terminated:</b> {flagReason} <span className="pay-buttons" style={{ marginTop: 8 }}><button className="btn danger" onClick={terminate}>Terminate</button></span></div>}
-          {recruiter && <p className="note" style={{ marginTop: 4 }}>Recruited by <button className="link inline" onClick={() => onOpen(recruiter.uid)}>{recruiter.name}</button> (their co-maker)</p>}
+          {!m.founder && m.heads > 0 && <RecruiterLine m={m} recruiter={recruiter} board={members.filter((x) => x.founder && x.heads > 0 && x.uid !== m.uid)} year={year} onOpen={onOpen} />}
           <UnpaidLoans m={m} requests={requests} year={year} />
         </>} />
 
@@ -312,6 +321,35 @@ function MarkCarryover({ m, year, onDone }: { m: StoredMember; year: number; onD
       </span>
     </form>
   )
+}
+
+/** Who recruited this member (their one co-maker): shown, and changeable by the admin. */
+function RecruiterLine({ m, recruiter, board, year, onOpen }: {
+  m: StoredMember; recruiter?: StoredMember; board: StoredMember[]; year: number; onOpen: (uid: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [pick, setPick] = useState(recruiter?.uid ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const save = async () => {
+    setError(null)
+    try { await setRecruiter(m, board.find((b) => b.uid === pick) ?? null, year); setEditing(false) } catch (err) { setError((err as Error).message) }
+  }
+  if (editing) {
+    return (
+      <div className="field">
+        <label htmlFor="rc">Recruited by (their co-maker)</label>
+        <select id="rc" value={pick} onChange={(e) => setPick(e.target.value)}>
+          <option value="">No recruiter</option>
+          {board.map((b) => <option key={b.uid} value={b.uid}>{b.name}</option>)}
+        </select>
+        {error && <p className="alert" role="alert">{error}</p>}
+        <span className="pay-buttons"><button className="btn" onClick={save}>Save</button><button className="copy" onClick={() => setEditing(false)}>Cancel</button></span>
+      </div>
+    )
+  }
+  return recruiter
+    ? <p className="note" style={{ marginTop: 4 }}>Recruited by <button className="link inline" onClick={() => onOpen(recruiter.uid)}>{recruiter.name}</button> (their co-maker) · <button className="link inline" onClick={() => setEditing(true)}>Change</button></p>
+    : <p className="alert" role="status" style={{ marginTop: 8 }}>No recruiter on record, so they can't request loans. <button className="link inline" onClick={() => setEditing(true)}>Set recruiter</button></p>
 }
 
 /** Record savings or interest received; it is added to the history (mistakes are voided, never edited). */
