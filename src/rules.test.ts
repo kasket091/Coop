@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   closedMonths, coopSummary, loanLimit, memberSummary, minAnnualLoan, missedMonths,
-  missedOwed, monthlyDue, monthlyLoan, monthlyLoanError, regularLoan, type Member,
+  missedOwed, monthlyDue, monthlyLoan, monthlyLoanError, monthsLeft, regularLoan, regularTerms, type Member,
 } from './rules'
 
 const zeros = () => Array(12).fill(0)
@@ -42,6 +42,27 @@ describe('deadlines', () => {
   it('missed contributions compound at 10% a month', () => {
     expect(missedOwed(5000, 1)).toBe(5500)
     expect(missedOwed(5000, 3)).toBe(6655)
+  })
+})
+
+describe('cycle-aware months', () => {
+  it('months left must end by December 15', () => {
+    expect(monthsLeft(new Date(2026, 10, 8))).toBe(1)
+    expect(monthsLeft(new Date(2026, 10, 20))).toBe(0)
+    expect(monthsLeft(new Date(2026, 2, 3))).toBe(9)
+    expect(monthsLeft(new Date(2026, 11, 16))).toBe(0)
+  })
+  it('before the cycle counts from January 1; after it nothing is left', () => {
+    expect(monthsLeft(new Date(2025, 5, 1), 2026)).toBe(11)
+    expect(monthsLeft(new Date(2027, 0, 5), 2026)).toBe(0)
+  })
+  it('regular terms are the 2/3/6 that fit', () => {
+    expect(regularTerms(1)).toEqual([])
+    expect(regularTerms(3)).toEqual([2, 3])
+    expect(regularTerms(9)).toEqual([2, 3, 6])
+  })
+  it('deadlines follow the cycle year', () => {
+    expect(closedMonths(new Date(2027, 0, 9), 2027)).toBe(1)
   })
 })
 

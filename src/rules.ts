@@ -1,10 +1,11 @@
 // HILAS Coop 2026 handbook rules. Every money number the app shows comes from here.
 
-export type Member = { id: number; name: string; heads: number; paid: number[]; interest: number[] }
+export type Member = { id: number; name: string; heads: number; paid: number[]; interest: number[]; founder?: boolean }
 
 export const PER_HEAD = 500
-const CYCLE_YEAR = 2026
+export const DEFAULT_CYCLE_YEAR = 2026
 const DUE_DAY = 7
+const REPAY_BY_DAY = 15 // every loan is repaid by December 15 (handbook p.4)
 
 const cents = (x: number) => Math.round(x * 100) / 100
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
@@ -17,19 +18,30 @@ export const loanLimit = (heads: number) => heads * PER_HEAD * 12 + heads * 2000
 export const minAnnualLoan = (heads: number) => (heads <= 4 ? 10000 : heads <= 7 ? 20000 : 30000)
 
 /** Months of the cycle whose 1st–7th payment window has passed. */
-export function closedMonths(today: Date): number {
+export function closedMonths(today: Date, year = DEFAULT_CYCLE_YEAR): number {
   const y = today.getFullYear()
-  if (y < CYCLE_YEAR) return 0
-  if (y > CYCLE_YEAR) return 12
+  if (y < year) return 0
+  if (y > year) return 12
   return today.getMonth() + (today.getDate() > DUE_DAY ? 1 : 0)
 }
 
-export function missedMonths(m: Member, today: Date): number[] {
+export function missedMonths(m: Member, today: Date, year = DEFAULT_CYCLE_YEAR): number[] {
   const due = monthlyDue(m.heads)
   const out: number[] = []
-  for (let i = 0; i < closedMonths(today); i++) if (due > 0 && m.paid[i] < due) out.push(i)
+  for (let i = 0; i < closedMonths(today, year); i++) if (due > 0 && m.paid[i] < due) out.push(i)
   return out
 }
+
+/** Whole months from today (or Jan 1 if the cycle hasn't started) that still end on or before Dec 15. */
+export function monthsLeft(today: Date, year = DEFAULT_CYCLE_YEAR): number {
+  const start = today.getFullYear() < year ? new Date(year, 0, 1) : today
+  const deadline = new Date(year, 11, REPAY_BY_DAY, 23, 59, 59)
+  let n = 0
+  while (new Date(start.getFullYear(), start.getMonth() + n + 1, start.getDate()) <= deadline) n++
+  return n
+}
+
+export const regularTerms = (left: number) => ([2, 3, 6] as const).filter((t) => t <= left)
 
 /** A missed contribution is a borrowed amount at 10%/month, capitalized monthly (handbook p.8). */
 export const missedOwed = (amount: number, months: number) => cents(amount * 1.1 ** months)
@@ -60,7 +72,7 @@ export type MemberSummary = {
   dividend: number; rebate: number; payout: number
 }
 
-export function memberSummary(m: Member, coop: CoopSummary, today: Date): MemberSummary {
+export function memberSummary(m: Member, coop: CoopSummary, today: Date, year = DEFAULT_CYCLE_YEAR): MemberSummary {
   const target = monthlyDue(m.heads) * 12
   const dividend = cents(m.heads * coop.dividendPerHead)
   const rebate = coop.top?.name === m.name ? cents(coop.top.rebate) : 0
@@ -68,7 +80,7 @@ export function memberSummary(m: Member, coop: CoopSummary, today: Date): Member
     monthlyDue: monthlyDue(m.heads),
     saved: sum(m.paid),
     target,
-    missed: missedMonths(m, today),
+    missed: missedMonths(m, today, year),
     dividend,
     rebate,
     payout: cents(target + dividend + rebate),
