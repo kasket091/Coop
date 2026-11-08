@@ -1,29 +1,61 @@
 import { describe, expect, it } from 'vitest'
-import type { Member } from './rules'
+import { depositAmount, type Member } from './rules'
 import {
-  canAdminApprove, carryover, customPayment, monthInterest, payInterest, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
+  canAdminApprove, carryover, comakerMode, customPayment, monthInterest, payInterest, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
 } from './requests'
 
 const zeros = () => Array(12).fill(0)
 const borrower: Member = { id: 1, name: 'Aljem Aviola', heads: 12, paid: zeros(), interest: zeros() }
+const founder: Member = { ...borrower, name: 'Chariz Parajes', founder: true }
 const base = {
-  borrower, comakerIds: ['f1', 'f2'], founderIds: ['f1', 'f2', 'f3'], type: 'flex' as const,
-  amount: 5000, months: 1, today: new Date(2026, 10, 8), year: 2026, hasPending: false, borrowerId: 'me',
+  borrower, borrowerId: 'me', recruiterId: 'f1', comakerIds: ['f1'], founderIds: ['f1', 'f2', 'f3', 'bryan'], bryanId: 'bryan',
+  type: 'flex' as const, amount: 5000, months: 1, today: new Date(2026, 10, 8), year: 2026,
+  hasPending: false, hasUnpaid: false, savings: 66000,
 }
 
+describe('co-maker rule', () => {
+  it('a member within the limit needs their recruiter', () => expect(comakerMode({ borrower, amount: 5000, type: 'flex' })).toBe('recruiter'))
+  it('a member over the limit is blocked', () => expect(comakerMode({ borrower, amount: 96001, type: 'flex' })).toBe('blocked'))
+  it('a founder within the limit needs no co-maker', () => expect(comakerMode({ borrower: founder, amount: 96000, type: 'flex' })).toBe('none'))
+  it('a founder over the limit needs 2 founders', () => expect(comakerMode({ borrower: founder, amount: 96001, type: 'flex' })).toBe('two-founders'))
+  it('a loan against deposit needs no co-maker', () => expect(comakerMode({ borrower, amount: 52800, type: 'deposit' })).toBe('none'))
+})
+
 describe('validateRequest', () => {
-  it('accepts a valid 1-month flex loan on 8 Nov 2026', () => expect(validateRequest(base)).toBeNull())
-  it('needs exactly two co-makers', () => expect(validateRequest({ ...base, comakerIds: ['f1'] })).toMatch(/2 co-makers/))
-  it('refuses the same co-maker twice', () => expect(validateRequest({ ...base, comakerIds: ['f1', 'f1'] })).toMatch(/different/))
-  it('refuses a non-founder co-maker', () => expect(validateRequest({ ...base, comakerIds: ['f1', 'x'] })).toMatch(/founding/))
-  it('refuses yourself as co-maker', () =>
-    expect(validateRequest({ ...base, borrowerId: 'f1', founderIds: ['f1', 'f2'] })).toMatch(/yourself/))
-  it('refuses more than the loan limit', () => expect(validateRequest({ ...base, amount: 96001 })).toMatch(/limit/))
+  it('accepts a valid 1-month flex loan with the recruiter on 8 Nov 2026', () => expect(validateRequest(base)).toBeNull())
+  it('the co-maker must be your recruiter', () => expect(validateRequest({ ...base, comakerIds: ['f2'] })).toMatch(/recruiter/))
+  it('a member with no recruiter on record is told to ask the admin', () =>
+    expect(validateRequest({ ...base, recruiterId: undefined, comakerIds: [] })).toMatch(/admin/))
+  it('refuses a member over the loan limit', () => expect(validateRequest({ ...base, amount: 96001 })).toMatch(/limit/))
+  it('a founder within the limit sends no co-maker', () =>
+    expect(validateRequest({ ...base, borrower: founder, borrowerId: 'f3', comakerIds: [] })).toBeNull())
+  it('a founder over the limit needs 2 different founders, not themselves, not Bryan', () => {
+    const over = { ...base, borrower: founder, borrowerId: 'f3', amount: 100000, type: 'flex' as const }
+    expect(validateRequest({ ...over, comakerIds: ['f1'] })).toMatch(/2 founding/)
+    expect(validateRequest({ ...over, comakerIds: ['f1', 'f1'] })).toMatch(/different/)
+    expect(validateRequest({ ...over, comakerIds: ['f1', 'f3'] })).toMatch(/yourself/)
+    expect(validateRequest({ ...over, comakerIds: ['f1', 'bryan'] })).toMatch(/admin/)
+    expect(validateRequest({ ...over, comakerIds: ['f1', 'x'] })).toMatch(/founding/)
+    expect(validateRequest({ ...over, comakerIds: ['f1', 'f2'] })).toBeNull()
+  })
   it('refuses a term longer than the months left', () => expect(validateRequest({ ...base, months: 2 })).toMatch(/December 15/))
   it('refuses a regular term that does not fit', () =>
     expect(validateRequest({ ...base, type: 'regular', amount: 20000, months: 2 })).toMatch(/December 15/))
   it('passes on handbook loan errors', () => expect(validateRequest({ ...base, type: 'grocery', amount: 1500 })).toMatch(/2,000/))
   it('refuses a second pending request', () => expect(validateRequest({ ...base, hasPending: true })).toMatch(/pending/))
+})
+
+describe('loan against deposit', () => {
+  const dep = { ...base, type: 'deposit' as const, comakerIds: [], amount: 52800 }
+  it('is 80% of savings rounded down to ₱100', () => {
+    expect(depositAmount(66000)).toBe(52800)
+    expect(depositAmount(11050)).toBe(8800)
+    expect(depositAmount(0)).toBe(0)
+  })
+  it('accepts 80% of savings with no co-maker', () => expect(validateRequest(dep)).toBeNull())
+  it('the amount is fixed at 80%', () => expect(validateRequest({ ...dep, amount: 50000 })).toMatch(/80%/))
+  it('refuses a member with unpaid loans', () => expect(validateRequest({ ...dep, hasUnpaid: true })).toMatch(/unpaid/))
+  it('charges 7% a month', () => expect(monthInterest({ ...req('approved', 'approved', 'approved'), type: 'deposit', amount: 52800 })).toBe(3696))
 })
 
 const req = (a: string, b: string, status: LoanRequest['status'] = 'pending'): LoanRequest => ({

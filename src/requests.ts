@@ -1,4 +1,4 @@
-import { loanLimit, MONTHLY_LOANS, monthlyLoanError, monthsLeft, regularLoan, regularTerms, type Member, type MonthlyLoanType } from './rules'
+import { depositAmount, loanLimit, MONTHLY_LOANS, monthlyLoanError, monthsLeft, regularLoan, regularTerms, type Member, type MonthlyLoanType } from './rules'
 
 export type LoanType = 'regular' | MonthlyLoanType
 export type CoStatus = 'pending' | 'approved' | 'declined'
@@ -30,8 +30,15 @@ export type LoanRequest = {
 export type RequestInput = {
   borrower: Member
   borrowerId: string
+  /** the member's recruiter (their one co-maker); founders have none */
+  recruiterId?: string
   comakerIds: string[]
   founderIds: string[]
+  /** Bryan, the admin: can't co-make an over-limit loan */
+  bryanId?: string
+  hasUnpaid: boolean
+  /** total savings paid so far (for Loan Against Deposit) */
+  savings: number
   type: LoanType
   amount: number
   months: number
@@ -41,6 +48,16 @@ export type RequestInput = {
 }
 
 /** Everything the handbook and the co-maker rule require; null means the request can be sent. */
+export type ComakerMode = 'none' | 'recruiter' | 'two-founders' | 'blocked'
+
+/** Who must vouch: deposit loans and founders within the limit need nobody; members need their recruiter. */
+export function comakerMode(r: { borrower: Member; amount: number; type: LoanType }): ComakerMode {
+  if (r.type === 'deposit') return 'none'
+  const over = r.amount > loanLimit(r.borrower.heads)
+  if (r.borrower.founder) return over ? 'two-founders' : 'none'
+  return over ? 'blocked' : 'recruiter'
+}
+
 export function validateRequest(r: RequestInput): string | null {
   if (r.hasPending) return 'You already have a pending request. Wait for it, or withdraw it first.'
   const left = monthsLeft(r.today, r.year)
@@ -54,11 +71,23 @@ export function validateRequest(r: RequestInput): string | null {
     const err = monthlyLoanError(r.type, r.amount, r.months)
     if (err) return err
   }
-  if (r.amount > loanLimit(r.borrower.heads)) return `That is above your loan limit of ₱${loanLimit(r.borrower.heads).toLocaleString()}.`
-  if (r.comakerIds.length !== 2 || r.comakerIds.some((id) => !id)) return 'Choose 2 co-makers.'
-  if (r.comakerIds[0] === r.comakerIds[1]) return 'Choose 2 different co-makers.'
-  if (r.comakerIds.includes(r.borrowerId)) return "You can't pick yourself as a co-maker."
-  if (r.comakerIds.some((id) => !r.founderIds.includes(id))) return 'Co-makers must be founding members.'
+  if (r.type === 'deposit') {
+    if (r.hasUnpaid) return 'A loan against deposit needs all your unpaid loans cleared first.'
+    if (r.amount !== depositAmount(r.savings) || r.amount <= 0) return `A loan against deposit is 80% of your savings: ₱${depositAmount(r.savings).toLocaleString()}.`
+  }
+  const mode = comakerMode(r)
+  const ids = r.comakerIds.filter(Boolean)
+  if (mode === 'blocked') return `That is above your loan limit of ₱${loanLimit(r.borrower.heads).toLocaleString()}.`
+  if (mode === 'none') return ids.length ? 'This loan needs no co-maker.' : null
+  if (mode === 'recruiter') {
+    if (!r.recruiterId) return 'Your recruiter is not on record yet. Ask the admin.'
+    return ids.length === 1 && ids[0] === r.recruiterId ? null : 'Your co-maker must be your recruiter.'
+  }
+  if (ids.length !== 2) return 'Over your limit: choose 2 founding members as co-makers.'
+  if (ids[0] === ids[1]) return 'Choose 2 different co-makers.'
+  if (ids.includes(r.borrowerId)) return "You can't pick yourself as a co-maker."
+  if (r.bryanId && ids.includes(r.bryanId)) return "The admin can't co-make a loan over the limit (handbook)."
+  if (ids.some((id) => !r.founderIds.includes(id))) return 'Co-makers must be founding members.'
   return null
 }
 
@@ -132,3 +161,11 @@ export function customPayment(r: LoanRequest, paid: number): CustomPayment {
     balance: Math.max(0, newBalance), principal: cents(principalOf(r) - rest), paidOff: newBalance <= 0.001,
   }
 }
+
+/** A loan's state before an admin action, saved on its transaction so a void can put it back. */
+export const loanSnapshot = (r: LoanRequest) => ({
+  status: r.status, balance: balanceOf(r), principal: principalOf(r),
+  carryovers: r.carryovers ?? 0, interestPayments: r.interestPayments ?? 0, customPayments: r.customPayments ?? 0,
+  ...(r.paidAt ? { paidAt: r.paidAt } : {}), ...(r.decidedAt ? { decidedAt: r.decidedAt } : {}),
+})
+export type LoanSnapshot = ReturnType<typeof loanSnapshot>

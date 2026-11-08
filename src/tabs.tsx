@@ -5,11 +5,12 @@ import { loanLimit, MONTHLY_LOANS, monthlyLoan, monthlyLoanError, monthsLeft, re
 
 // Labels stay short enough for a 343px select; the conditions show under the field.
 export const TYPES: Record<LoanType, string> = {
-  regular: 'Regular (flat rate)',
+  regular: 'Regular',
   flex: 'Flex (8% a month)',
   grocery: 'Grocery – Tindamarts (5%)',
   appliance: 'Appliance / device (5%)',
   events: 'Special Events (8%)',
+  deposit: 'Loan Against Deposit (7%)',
 }
 export const CONDITIONS: Record<keyof typeof TYPES, string> = {
   regular: '₱10,000–₱50,000 for 2 or 3 months; ₱20,000–₱75,000 for 6 months.',
@@ -17,6 +18,7 @@ export const CONDITIONS: Record<keyof typeof TYPES, string> = {
   grocery: 'Minimum ₱2,000.',
   appliance: 'At least 2 months. Proof of receipt required.',
   events: 'Board members only.',
+  deposit: '80% of your savings, no co-maker. Only when you have no unpaid loans.',
 }
 
 /** Months a loan of this type may run today: up to December 15 of the cycle year. */
@@ -99,8 +101,9 @@ function MonthlyQuote({ type, capital, months }: { type: MonthlyLoanType; capita
     <div className="quote">
       <ul className="rows panel">
         {flex && <li><span>Paid back within 15 days (7%)</span><b>{peso(capital * 1.07)}</b></li>}
-        <li><span>Pay the interest every month</span><b>{peso(capital + q.paidMonthly)}</b></li>
-        <li><span>Pay nothing until month {months}</span><b>{peso(capital + q.unpaid)}</b></li>
+        <li><span>Interest each month</span><b>{peso(capital * MONTHLY_LOANS[type].rate)}</b></li>
+        <li><span>Total interest if paid monthly</span><b>{peso(q.paidMonthly)}</b></li>
+        <li><span>Owed if nothing is paid until month {months}</span><b>{peso(capital + q.unpaid)}</b></li>
       </ul>
       <p className="note">Unpaid interest is added to the balance each month, so waiting costs more. Everything must be repaid by December 15.</p>
     </div>

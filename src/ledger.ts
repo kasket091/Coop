@@ -1,0 +1,29 @@
+// Transactions: the money history. Members' 12-month savings/interest numbers are built from these.
+import type { LoanSnapshot } from './requests'
+
+export type TxnKind = 'note' | 'savings' | 'interest' | 'principal' | 'release'
+export type Txn = {
+  id: string; memberId: string; memberName: string; kind: TxnKind; amount: number; month: number; cycle: number
+  loanId?: string; note: string; createdAt: number; voidedAt?: number; voidReason?: string
+  /** the loan as it was before this transaction, so voiding it can put the loan back */
+  loanBefore?: LoanSnapshot
+}
+
+const cents = (x: number) => Math.round(x * 100) / 100
+
+/** Savings and interest per month for one cycle; voided entries and other kinds don't count. */
+export function ledgerFrom(txns: Txn[], cycle: number) {
+  const paid = Array<number>(12).fill(0), interest = Array<number>(12).fill(0)
+  for (const t of txns) {
+    if (t.voidedAt || t.cycle !== cycle) continue
+    if (t.kind === 'savings') paid[t.month] = cents(paid[t.month] + t.amount)
+    if (t.kind === 'interest') interest[t.month] = cents(interest[t.month] + t.amount)
+  }
+  return { paid, interest }
+}
+
+export const quarterTotals = (months: number[]) => [0, 3, 6, 9].map((i) => cents(months[i] + months[i + 1] + months[i + 2]))
+
+/** Only a loan's newest live transaction may be voided, so the loan's history never contradicts itself. */
+export const newestLiveForLoan = (txns: Txn[], loanId: string) =>
+  txns.filter((t) => t.loanId === loanId && !t.voidedAt).sort((a, b) => b.createdAt - a.createdAt)[0]

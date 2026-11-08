@@ -41,3 +41,29 @@ export function randomMemberEmail(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(20))
   return `m-${[...bytes].map((b) => alphabet[b % alphabet.length]).join('')}@${MEMBER_DOMAIN}`
 }
+
+/** Bryan is the admin and a board member; he recruits, but never co-makes an over-limit loan (handbook). */
+export const ADMIN_MEMBER_NAME = 'Bryan Kevin Tabuan'
+
+/** The 11 active board members: the 10 founding co-makers plus Bryan. */
+export const BOARD = [...FOUNDERS, ADMIN_MEMBER_NAME]
+
+/** Who recruited whom (2026). Each recruit's co-maker is their recruiter. */
+export const RECRUITS: Record<string, string[]> = {
+  'Bryan Kevin Tabuan': ['Leobardo Tabuan', 'Isabel Tabuan'],
+  'Mary Joy Tabuan': ['Kyle Kent Tabuan', 'April Rose Salo'],
+  'Mark Anthony Ampo': ['Rosly Ampo', 'Evangeline Ampo'],
+  'Dawn Hope Tejano': ['Susan Cabangisan', 'Ren Mark Cabangisan', 'Sarah Jean Cabangisan'],
+  'Jeram Rey Tejano': ['Era Tejano-Estremos', 'Aida Tejano'],
+  'Maricris Jose': ['Alexander Arcayena', 'Mary Nicole Arcayena'],
+  'Peter John Jose': [],
+  'Chariz Parajes': ['Nico Sabio', 'Aljem Aviola'],
+  'Israil Parajes': ['Ingrid Suson', 'Paul John Suson'],
+  'Mark Dave Tumanda': ['Mary Henzel Tumanda'],
+  'Joyma Tumanda': ['Felipe Rebosura', 'Marifel Atkinson', 'Marc Rebosura', 'Chai Rebosura'],
+}
+
+export const recruiterOf = (name: string) =>
+  Object.keys(RECRUITS).find((r) => RECRUITS[r].some((n) => normalizeName(n) === normalizeName(name)))
+
+export const isBoardName = (name: string) => BOARD.some((b) => normalizeName(b) === normalizeName(name))

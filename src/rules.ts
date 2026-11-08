@@ -100,13 +100,17 @@ export function regularLoan(capital: number, months: 2 | 3 | 6): RegularQuote {
   return { rate: t.rate, interest, installment: cents((capital + interest) / months), total: cents(capital + interest) }
 }
 
-export type MonthlyLoanType = 'flex' | 'grocery' | 'appliance' | 'events'
+export type MonthlyLoanType = 'flex' | 'grocery' | 'appliance' | 'events' | 'deposit'
 export const MONTHLY_LOANS: Record<MonthlyLoanType, { rate: number; minAmount?: number; minMonths?: number }> = {
   flex: { rate: 0.08 },
   grocery: { rate: 0.05, minAmount: 2000 },
   appliance: { rate: 0.05, minMonths: 2 },
   events: { rate: 0.08 },
+  deposit: { rate: 0.07 },
 }
+
+/** Loan Against Deposit: 80% of savings paid so far, rounded down to ₱100. */
+export const depositAmount = (saved: number) => Math.max(0, Math.floor((saved * 0.8) / 100) * 100)
 
 /** Handbook p.7 limits for monthly-rate loans; null when the quote is allowed. */
 export function monthlyLoanError(type: MonthlyLoanType, capital: number, months: number): string | null {
