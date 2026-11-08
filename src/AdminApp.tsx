@@ -3,12 +3,12 @@ import { startingPassword } from './accounts'
 import { MONTHS, peso } from './format'
 import { IconCoop, IconLoans, IconSavings } from './icons'
 import { RequestCard } from './member-tabs'
-import { canAdminApprove, unpaidLoans, type LoanRequest } from './requests'
+import { balanceOf, canAdminApprove, monthInterest, unpaidLoans, type LoanRequest } from './requests'
 import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, adminDecide, deleteMember, importFromSheet, markLoanPaid, recomputeSummary, renameMember, resetLogin, savePayments,
+  addMember, adminDecide, carryOverLoan, deleteMember, importFromSheet, markLoanPaid, payLoanInterest, recomputeSummary, renameMember, resetLogin, savePayments,
   saveSheetLoanBalance,
   signOutUser, startCycle, watchAllMembers, watchAllRequests, watchSummary, type StoredMember, type Summary,
 } from './store'
@@ -116,6 +116,9 @@ function MemberDetail({ m, members, requests, year, onBack }: {
   const [paid, setPaid] = useState(m.paid.map(String))
   const [interest, setInterest] = useState(m.interest.map(String))
   const [heads, setHeads] = useState(String(m.heads))
+  // refresh the editor when the record changes elsewhere (e.g. Pay interest), so Save never writes back stale numbers
+  const recordKey = JSON.stringify([m.paid, m.interest, m.heads])
+  useEffect(() => { setPaid(m.paid.map(String)); setInterest(m.interest.map(String)); setHeads(String(m.heads)) }, [recordKey])
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<'delete' | 'reset' | 'rename' | null>(null)
@@ -145,7 +148,7 @@ function MemberDetail({ m, members, requests, year, onBack }: {
   return (
     <section>
       <MySavings m={m} coop={coop} year={year} action={<button className="link" onClick={() => onBack()}>Back</button>}
-        extra={<UnpaidLoans m={m} requests={requests} />} />
+        extra={<UnpaidLoans m={m} requests={requests} year={year} />} />
       <div className="section">
         <h2>Record payments and interest</h2>
         <div className="field"><label htmlFor="eh">Heads</label><input id="eh" inputMode="numeric" value={heads} onChange={(e) => setHeads(e.target.value)} /></div>
@@ -191,7 +194,7 @@ function MemberDetail({ m, members, requests, year, onBack }: {
 }
 
 /** Total unpaid loans: app loans approved but not yet paid, plus the balance typed from the old Borrowers sheet. */
-function UnpaidLoans({ m, requests }: { m: StoredMember; requests: LoanRequest[] }) {
+function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanRequest[]; year: number }) {
   const u = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0)
   const [balance, setBalance] = useState(String(m.sheetLoanBalance ?? 0))
   const [editing, setEditing] = useState(false)
@@ -210,11 +213,30 @@ function UnpaidLoans({ m, requests }: { m: StoredMember; requests: LoanRequest[]
       <ul className="unpaid-list">
         {u.loans.map((r) => (
           <li key={r.id}>
-            <span>{peso(r.amount)} · approved {new Date(r.decidedAt ?? r.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}<small>{r.quote}</small></span>
-            <button className="btn-mini" disabled={busy === r.id}
-              onClick={() => window.confirm(`Mark ${m.name}'s ${peso(r.amount)} loan as fully paid?`) && run(r.id, () => markLoanPaid(r.id))}>
-              Mark as paid
-            </button>
+            <span>
+              {peso(balanceOf(r))} owed{balanceOf(r) !== r.amount ? ` (borrowed ${peso(r.amount)})` : ''}
+              <small>
+                approved {new Date(r.decidedAt ?? r.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
+                {monthInterest(r) > 0 ? ` · this month's interest ${peso(monthInterest(r))}` : ` · ${r.quote}`}
+                {r.carryovers ? ` · carried over ${r.carryovers}×` : ''}{r.interestPayments ? ` · interest paid ${r.interestPayments}×` : ''}
+              </small>
+            </span>
+            <span className="loan-actions">
+              <button className="btn-mini" disabled={busy === r.id}
+                onClick={() => window.confirm(`Mark ${m.name}'s loan as fully paid (${peso(balanceOf(r))})?`) && run(r.id, () => markLoanPaid(r.id, year))}>
+                Mark as paid
+              </button>
+              {monthInterest(r) > 0 && (<>
+                <button className="btn-mini" disabled={busy === r.id}
+                  onClick={() => window.confirm(`${m.name} paid this month's interest of ${peso(monthInterest(r))}? The ${peso(balanceOf(r))} balance stays.`) && run(r.id, () => payLoanInterest(r.id, year))}>
+                  Pay interest
+                </button>
+                <button className="btn-mini" disabled={busy === r.id}
+                  onClick={() => window.confirm(`Carry over: add ${peso(monthInterest(r))} interest to the balance, making it ${peso(balanceOf(r) + monthInterest(r))}?`) && run(r.id, () => carryOverLoan(r.id, year))}>
+                  Carryover
+                </button>
+              </>)}
+            </span>
           </li>
         ))}
         <li>

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Member } from './rules'
-import { canAdminApprove, requestStage, unpaidLoans, validateRequest, type LoanRequest } from './requests'
+import {
+  canAdminApprove, carryover, monthInterest, payInterest, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
+} from './requests'
 
 const zeros = () => Array(12).fill(0)
 const borrower: Member = { id: 1, name: 'Aljem Aviola', heads: 12, paid: zeros(), interest: zeros() }
@@ -43,6 +45,38 @@ describe('unpaid loans', () => {
   })
   it('a missing sheet balance counts as zero', () => expect(unpaidLoans(all, 'me').total).toBe(5000))
   it('a paid loan reads as Paid', () => expect(requestStage(loan('b', 'me', 3000, 'paid'))).toBe('Paid'))
+})
+
+describe('pay interest and carryover (handbook p.8)', () => {
+  const flex = (balance?: number): LoanRequest => ({ ...req('approved', 'approved', 'approved'), type: 'flex', amount: 5000, balance })
+  it("this month's interest is the rate on the current balance", () => {
+    expect(monthInterest(flex())).toBe(400)
+    expect(monthInterest({ ...flex(), type: 'grocery' })).toBe(250)
+  })
+  it('carryover adds the interest to the balance, compounding month after month', () => {
+    let r = flex()
+    r = { ...r, ...carryover(r) }; expect(r.balance).toBe(5400)
+    r = { ...r, ...carryover(r) }; expect(r.balance).toBe(5832)
+    r = { ...r, ...carryover(r) }; expect(r.balance).toBe(6298.56)
+    expect(r.carryovers).toBe(3)
+  })
+  it('paying interest keeps the balance and reports the interest collected', () => {
+    const r = flex(5400)
+    const p = payInterest(r)
+    expect(p.collected).toBe(432)
+    expect(p.update.balance).toBe(5400)
+    expect(p.update.interestPayments).toBe(1)
+  })
+  it('settling a carried-over loan collects the carried interest', () => {
+    expect(settleInterest(flex(5832))).toBe(832)
+    expect(settleInterest(flex())).toBe(0)
+  })
+  it('unpaid loans count the current balance, not the original amount', () => {
+    expect(unpaidLoans([{ ...flex(5832), borrowerId: 'me' }], 'me').total).toBe(5832)
+  })
+  it('regular (flat) loans have no monthly carryover', () => {
+    expect(monthInterest({ ...flex(), type: 'regular' })).toBe(0)
+  })
 })
 
 describe('approval flow', () => {

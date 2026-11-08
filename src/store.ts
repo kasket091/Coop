@@ -11,7 +11,7 @@ import {
 import { ADMIN_EMAIL, isFounderName, loginKey, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { loadMembers } from './data'
 import { auth, db, firebaseConfig } from './firebase'
-import type { LoanRequest } from './requests'
+import { carryover, payInterest, settleInterest, type LoanRequest } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 
@@ -123,13 +123,44 @@ export const adminDecide = (id: string, status: 'approved' | 'declined', direct 
     tx.update(ref, { status, decidedAt: Date.now(), ...(direct ? { directApproval: true } : {}) })
   })
 
-/** Only an approved loan can be marked paid. */
-export const markLoanPaid = (id: string) =>
-  runTransaction(db, async (tx) => {
+/** Ledger month for money received today (clamped to the cycle). */
+const ledgerMonth = (year: number, today = new Date()) =>
+  today.getFullYear() < year ? 0 : today.getFullYear() > year ? 11 : today.getMonth()
+
+/**
+ * Admin loan actions on an approved loan. Interest the borrower actually pays goes into their monthly
+ * interest record (so it counts toward the dividend); carried-over interest is only counted once it is paid.
+ */
+async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number>; collected: number }) {
+  await runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
-    if ((await tx.get(ref)).data()?.status !== 'approved') throw new Error('Only an approved loan can be marked paid.')
-    tx.update(ref, { status: 'paid', paidAt: Date.now() })
+    const snap = await tx.get(ref)
+    const r = { ...(snap.data() as LoanRequest), id }
+    if (r.status !== 'approved') throw new Error('This loan is no longer open.')
+    const { update, collected } = act(r)
+    const memberRef = doc(db, 'members', r.borrowerId)
+    const member = collected > 0 ? await tx.get(memberRef) : null
+    tx.update(ref, update)
+    if (member?.exists()) {
+      const interest = [...(member.data().interest as number[])]
+      interest[ledgerMonth(year)] = Math.round((interest[ledgerMonth(year)] + collected) * 100) / 100
+      tx.update(memberRef, { interest })
+    }
   })
+  await recomputeSummary(await allMembers())
+}
+
+/** Fully paid: closes the loan; any carried-over interest in the balance is recorded as interest collected. */
+export const markLoanPaid = (id: string, year: number) =>
+  loanAction(id, year, (r) => ({ update: { status: 'paid', paidAt: Date.now() }, collected: settleInterest(r) }))
+
+/** The borrower paid this month's interest only; the balance stays. */
+export const payLoanInterest = (id: string, year: number) =>
+  loanAction(id, year, (r) => { const p = payInterest(r); return { update: p.update, collected: p.collected } })
+
+/** Interest not paid: it is added to the balance and next month is charged on the new balance. */
+export const carryOverLoan = (id: string, year: number) =>
+  loanAction(id, year, (r) => ({ update: carryover(r), collected: 0 }))
 
 // ---------- admin ----------
 export const watchAllMembers = (cb: (m: StoredMember[]) => void) =>

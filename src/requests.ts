@@ -1,4 +1,4 @@
-import { loanLimit, monthlyLoanError, monthsLeft, regularLoan, regularTerms, type Member, type MonthlyLoanType } from './rules'
+import { loanLimit, MONTHLY_LOANS, monthlyLoanError, monthsLeft, regularLoan, regularTerms, type Member, type MonthlyLoanType } from './rules'
 
 export type LoanType = 'regular' | MonthlyLoanType
 export type CoStatus = 'pending' | 'approved' | 'declined'
@@ -16,6 +16,10 @@ export type LoanRequest = {
   createdAt: number
   decidedAt?: number
   paidAt?: number
+  /** current amount owed; starts at `amount`, grows with each carryover */
+  balance?: number
+  carryovers?: number
+  interestPayments?: number
   /** set when the admin approved without waiting for both co-makers */
   directApproval?: boolean
 }
@@ -70,6 +74,25 @@ export function requestStage(r: LoanRequest): string {
 /** A member's unpaid loans: app loans approved but not marked paid, plus the balance typed from the old sheet. */
 export function unpaidLoans(all: LoanRequest[], memberId: string, sheetBalance = 0) {
   const loans = all.filter((r) => r.borrowerId === memberId && r.status === 'approved')
-  const appTotal = loans.reduce((t, r) => t + r.amount, 0)
+  const appTotal = loans.reduce((t, r) => t + balanceOf(r), 0)
   return { loans, appTotal, sheetBalance, total: appTotal + sheetBalance }
 }
+
+const cents = (x: number) => Math.round(x * 100) / 100
+export const balanceOf = (r: LoanRequest) => r.balance ?? r.amount
+
+/** One month's interest on the current balance (monthly-rate loans; regular loans are flat-rate instalments). */
+export const monthInterest = (r: LoanRequest) =>
+  r.type === 'regular' ? 0 : cents(balanceOf(r) * MONTHLY_LOANS[r.type].rate)
+
+/** Carryover: this month's interest is added to the balance; next month's interest is charged on the new balance. */
+export const carryover = (r: LoanRequest) => ({ balance: cents(balanceOf(r) + monthInterest(r)), carryovers: (r.carryovers ?? 0) + 1 })
+
+/** Pay interest: the borrower pays this month's interest; the balance stays. `collected` goes to the interest ledger. */
+export const payInterest = (r: LoanRequest) => ({
+  collected: monthInterest(r),
+  update: { balance: balanceOf(r), interestPayments: (r.interestPayments ?? 0) + 1 },
+})
+
+/** When a loan is fully paid, any carried-over interest in the balance is interest collected. */
+export const settleInterest = (r: LoanRequest) => cents(Math.max(0, balanceOf(r) - r.amount))
