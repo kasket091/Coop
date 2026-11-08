@@ -652,25 +652,6 @@ async function allMembers(): Promise<StoredMember[]> {
   return (await getDocs(collection(db, 'members'))).docs.map((d) => ({ ...(d.data() as StoredMember), uid: d.id }))
 }
 
-/** Moves the 2026 sheet into Firebase. Safe to run again: anyone already imported is skipped. */
-export async function importFromSheet(onProgress: (done: number, total: number) => void): Promise<number> {
-  const rows = importRows(await loadMembers(), (await allMembers()).map((m) => m.name))
-  let done = 0
-  for (const m of rows) {
-    if (m.heads > 0) {
-      await addMember({ name: m.name, heads: m.heads, founder: isFounderName(m.name), paid: m.paid, interest: m.interest, id: m.id, year: 2026 }, false)
-    } else {
-      // left the coop but their interest was collected, so it still counts toward the dividend
-      const ref: DocumentReference = doc(collection(db, 'members'))
-      await setDoc(ref, { id: m.id, name: m.name, heads: 0, founder: false, paid: m.paid, interest: m.interest, cycle: 2026, createdAt: Date.now(), hasLogin: false, rebate: 0 })
-    }
-    onProgress(++done, rows.length)
-  }
-  await setDoc(doc(db, 'settings', 'cycle'), { year: 2026 })
-  await recomputeSummary(await allMembers())
-  return done
-}
-
 /** New yearly cycle: clears members, logins, founders and loan requests, then sets the year. */
 export async function startCycle(year: number): Promise<void> {
   for (const name of ['members', 'founders', 'logins', 'loanRequests', 'transactions']) {

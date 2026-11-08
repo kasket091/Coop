@@ -13,7 +13,7 @@ import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, markCarryover, restoreMember, terminateMember, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
+  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, markCarryover, restoreMember, terminateMember, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, previewResync, recomputeSummary, renameMember, resetLogin, runResync, saveHeads, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchMigrated, watchSummary,
   type ResyncRow, type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers,
@@ -674,15 +674,6 @@ function CoopAdmin({ members, summary, year }: { members: StoredMember[]; summar
       )}
       {migrated && <p className="note section">Transaction history is on. Record payments on each member's page.</p>}
 
-      {members.length === 0 && year === 2026 && (
-        <div className="section">
-          <h2>Import the 2026 sheet</h2>
-          <p className="note">Creates every member's login and copies their savings and interest from the Google Sheet. If it stops partway, run it again: members already imported are skipped.</p>
-          <button className="btn wide" disabled={!!progress} onClick={() => run(() => importFromSheet((d, t) => setProgress(`Importing ${d} of ${t}…`)))}>
-            {progress ?? 'Import from sheet'}
-          </button>
-        </div>
-      )}
 
       <div className="section">
         <h2>Start the {next} cycle</h2>
