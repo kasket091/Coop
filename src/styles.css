@@ -319,3 +319,5 @@ input.locked { background: var(--cream); color: var(--navy); font-weight: 700; }
 .terminated .rows li { padding: 8px 0; border-top: 1px solid #e6c3c0; }
 .terminated .rows li.final b, .terminated .rows li.final span { color: var(--navy); font-weight: 700; font-size: 17px; }
 .terminated .rows li.owed b, .terminated .rows li.owed span { color: var(--red); font-weight: 700; }
+
+.cell.carried { background: #f4c7c3; border-color: var(--red); color: #6e1c18; }

@@ -31,6 +31,8 @@ export type LoanRequest = {
   no?: number
   /** for a savings loan (SL): the month whose missed savings it covers */
   carriedMonth?: number
+  /** a Savings Loan's 10% was added to the balance at once */
+  upfront?: boolean
   /** closed by the admin without recording money (e.g. a test loan) */
   closedNoMoney?: boolean
   /** set when the admin approved without waiting for both co-makers */
@@ -201,6 +203,15 @@ export function savingsLoan(p: { borrowerId: string; borrowerName: string; amoun
   return {
     borrowerId: p.borrowerId, borrowerName: p.borrowerName, type: 'savings', amount: p.amount, months: 1,
     quote: '10% a month until paid', comakers: {}, comakerIds: [], status: 'approved',
-    createdAt: p.now, decidedAt: p.now, balance: p.amount, principal: p.amount, ref: p.ref, carriedMonth: p.month,
+    createdAt: p.now, decidedAt: p.now, ref: p.ref, carriedMonth: p.month,
+    // the 10% is added at once: ₱6,000 carried over is ₱6,600 owed; next month is charged on ₱6,600
+    balance: cents(p.amount * 1.1), principal: p.amount, upfront: true,
   }
+}
+
+/** An older Savings Loan made before the 10% was added upfront: the one-time correction, or null. */
+export function upfrontFix(r: LoanRequest) {
+  if (r.type !== 'savings' || r.upfront) return null
+  const added = cents(r.amount * 0.1)
+  return { balance: cents(balanceOf(r) + added), upfront: true as const, added }
 }

@@ -12,7 +12,7 @@ import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLi
 import { loadMembers } from './data'
 import { auth, db, firebaseConfig } from './firebase'
 import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
-import { balanceOf, carryover, customPayment, loanSnapshot, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
+import { balanceOf, carryover, customPayment, loanSnapshot, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 
@@ -158,8 +158,8 @@ async function commitChunks(ops: ((b: ReturnType<typeof writeBatch>) => void)[])
 /** Rebuilds a member's 12-month savings/interest from their live transactions, then the coop totals. */
 export async function rebuildLedger(memberId: string, year: number): Promise<void> {
   const mine = asTxns((await getDocs(query(txns, where('memberId', '==', memberId)))).docs)
-  const { paid, interest } = ledgerFrom(mine, year)
-  await updateDoc(doc(db, 'members', memberId), { paid, interest })
+  const { paid, interest, carried } = ledgerFrom(mine, year)
+  await updateDoc(doc(db, 'members', memberId), { paid, interest, carried })
   await recomputeSummary(await allMembers())
 }
 
@@ -412,7 +412,7 @@ export async function carryOverSavings(m: StoredMember, month: number, amount: n
     tx.set(counterRef, next.counters)
     tx.set(loanDoc, loan)
     tx.set(doc(txns), txnRecord({ ...base, kind: 'savings', amount, note: `${MONTH_NAMES[month]} savings carried over as loan ${label}` }, year, now))
-    tx.set(doc(txns), txnRecord({ ...base, kind: 'release', amount, note: `Loan ${label}: missed ${MONTH_NAMES[month]} savings, 10% a month` }, year, now))
+    tx.set(doc(txns), txnRecord({ ...base, kind: 'release', amount, note: `Loan ${label}: missed ${MONTH_NAMES[month]} savings + 10% at once = ${php(loan.balance ?? amount)} owed, then 10% a month` }, year, now))
     tx.set(doc(txns), txnRecord({ ...base, kind: 'note', amount: 0, carryover: true, note: `${MONTH_NAMES[month]} carried over (${label})` }, year, now))
   })
   await rebuildLedger(m.uid, year)
@@ -420,6 +420,32 @@ export async function carryOverSavings(m: StoredMember, month: number, amount: n
 }
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * One-time correction for Savings Loans made before the 10% was added upfront: adds it (logged, voidable) and
+ * rebuilds the borrower's totals so carried-over savings stop counting as saved.
+ */
+export async function fixSavingsLoans(year: number): Promise<void> {
+  const old = asRequests((await getDocs(requests)).docs).filter((r) => r.status === 'approved' && upfrontFix(r))
+  const borrowers = new Set<string>()
+  for (const r of old) {
+    await runTransaction(db, async (tx) => {
+      const ref = doc(db, 'loanRequests', r.id)
+      const live = { ...((await tx.get(ref)).data() as LoanRequest), id: r.id }
+      const fix = upfrontFix(live)
+      if (!fix || live.status !== 'approved') return
+      tx.update(ref, { balance: fix.balance, upfront: true })
+      tx.set(doc(txns), txnRecord({
+        memberId: live.borrowerId, memberName: live.borrowerName, kind: 'note', amount: 0, loanId: r.id, loanBefore: loanSnapshot(live),
+        note: `Loan ${refLabel(live)}: 10% added at once (${php(fix.added)}), now ${php(fix.balance)} owed`,
+      }, year, Date.now()))
+    })
+    borrowers.add(r.borrowerId)
+  }
+  // carried-over savings no longer count as saved: refresh anyone who has a Savings Loan
+  for (const r of asRequests((await getDocs(query(requests, where('type', '==', 'savings')))).docs)) borrowers.add(r.borrowerId)
+  for (const id of borrowers) await rebuildLedger(id, year)
+}
 
 /** Gives references and running numbers to loans from before they existed, in approval order. */
 export async function assignMissingRefs(): Promise<void> {

@@ -1,5 +1,5 @@
 import { MONTHS, peso } from './format'
-import { carryoverMonths, quarterTotals, type Txn } from './ledger'
+import { carryoverMonths, ledgerFrom, quarterTotals, type Txn } from './ledger'
 import { coopSummary } from './rules'
 import type { StoredMember } from './store'
 
@@ -19,6 +19,12 @@ export function Dashboard({ members, txns, year }: { members: StoredMember[]; tx
   const qs = quarterTotals(savingsMonths), qi = quarterTotals(interestMonths)
   const carry = carryoverMonths(txns, year)
   const cls = (uid: string, month: number) => (carry.get(uid)?.has(month) ? 'carry' : undefined)
+  // savings carried over into a Savings Loan: shown red in the cell, left out of every total
+  const carried = new Map(members.map((m) => [m.uid, ledgerFrom(txns.filter((t) => t.memberId === m.uid), year).carried]))
+  const savingsCell = (m: StoredMember, i: number) => {
+    const c = carried.get(m.uid)?.[i] ?? 0
+    return c ? <>{n(m.paid[i])}{m.paid[i] ? ' + ' : ''}<span title="Carried over to a Savings Loan, not counted">{n(c)}</span></> : n(m.paid[i])
+  }
 
   return (
     <section className="dashboard">
@@ -59,7 +65,7 @@ export function Dashboard({ members, txns, year }: { members: StoredMember[]; tx
               <tr key={m.uid}>
                 <th scope="row" className="sticky">{m.name}</th>
                 <td>{m.heads}</td><td>{n(m.heads * 500)}</td><td>{c.totalHeads ? ((m.heads / c.totalHeads) * 100).toFixed(2) : ''}</td>
-                {MONTHS.map((_, i) => <td key={i} className={cls(m.uid, i)}>{n(m.paid[i])}</td>)}
+                {MONTHS.map((_, i) => <td key={i} className={cls(m.uid, i)}>{savingsCell(m, i)}</td>)}
                 <td className="tot">{n(sum(m.paid))}</td>
               </tr>
             ))}
@@ -95,7 +101,7 @@ export function Dashboard({ members, txns, year }: { members: StoredMember[]; tx
           </tfoot>
         </table>
       </div>
-      <p className="note dash-legend"><i className="swatch carry" aria-hidden="true" /> Red = carryover month (interest added to the balance) · ★ top borrower: the only one who receives the 3% bonus · voided entries are not counted.</p>
+      <p className="note dash-legend"><i className="swatch carry" aria-hidden="true" /> Red = carryover month: carried-over savings show in the cell but are not counted in any total; on the interest grid, interest was added to the balance · ★ top borrower: the only one who receives the 3% bonus · voided entries are not counted.</p>
     </section>
   )
 }

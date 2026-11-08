@@ -12,7 +12,7 @@ import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, addTransaction, adminDecide, assignMissingRefs, carryOverSavings, markCarryover, restoreMember, terminateMember, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
+  addMember, addTransaction, adminDecide, assignMissingRefs, carryOverSavings, fixSavingsLoans, markCarryover, restoreMember, terminateMember, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, previewResync, recomputeSummary, renameMember, resetLogin, runResync, saveHeads, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchMigrated, watchSummary,
   type ResyncRow, type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers,
@@ -50,7 +50,7 @@ export function AdminApp({ year }: { year: number }) {
       )}
       {!members ? <Loading />
         : tab === 'members' ? <Members members={members} requests={requests} txns={txns} year={year} />
-        : tab === 'loans' ? <LoansAdmin requests={requests} members={members} />
+        : tab === 'loans' ? <LoansAdmin requests={requests} members={members} year={year} />
         : tab === 'requests' ? <Requests requests={requests} year={year} />
         : tab === 'dashboard' ? <Dashboard members={members} txns={txns} year={year} />
         : <CoopAdmin members={members} summary={summary} year={year} />}
@@ -257,11 +257,11 @@ function CarrySavings({ m, year, onDone }: { m: StoredMember; year: number; onDo
   if (!open) return <button className="btn-mini carry-open" onClick={() => setOpen(true)}>Carry over missed savings</button>
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!window.confirm(`Carry over ${m.name}'s ${MONTHS[month]} savings of ${peso(n)}? ${MONTHS[month]} counts as saved and a Savings Loan at 10% a month starts now.`)) return
+    if (!window.confirm(`Carry over ${m.name}'s ${MONTHS[month]} savings of ${peso(n)}? A Savings Loan of ${peso(Math.round(n * 110) / 100)} (with 10% added) starts now.`)) return
     setBusy(true); setError(null)
     try {
       const ref = await carryOverSavings(m, month, n, year)
-      onDone(`${MONTHS[month]} savings carried over as loan ${ref} (${peso(n)} at 10% a month).`); setOpen(false); setAmount('')
+      onDone(`${MONTHS[month]} savings carried over as loan ${ref}: ${peso(Math.round(n * 110) / 100)} owed.`); setOpen(false); setAmount('')
     } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(false) }
   }
   return (
@@ -273,7 +273,7 @@ function CarrySavings({ m, year, onDone }: { m: StoredMember; year: number; onDo
         <div className="field"><label htmlFor="sa">Amount (₱)</label>
           <input id="sa" inputMode="decimal" value={amount === '' ? String(missing) : amount} onChange={(e) => setAmount(e.target.value)} /></div>
       </div>
-      <p className="note" style={{ marginTop: 0 }}>{MONTHS[month]} will count as saved ({peso(n)}, red on the Dashboard) and a Savings Loan at 10% a month starts now. It appears in Active Loans and Unpaid loans.</p>
+      <p className="note" style={{ marginTop: 0 }}>A Savings Loan of {peso(n)} + 10% at once = <b>{peso(Math.round(n * 110) / 100)} owed</b>, then 10% a month. {MONTHS[month]} shows red on the Dashboard but does not count as saved.</p>
       {error && <p className="alert" role="alert">{error}</p>}
       <span className="pay-buttons">
         <button className="btn" disabled={busy || !(n > 0)}>{busy ? 'Saving…' : 'Carry over as loan'}</button>
@@ -506,10 +506,12 @@ function Requests({ requests, year }: { requests: LoanRequest[]; year: number })
 }
 
 // ---------- loans: active and closed ----------
-function LoansAdmin({ requests, members }: { requests: LoanRequest[]; members: StoredMember[] }) {
+function LoansAdmin({ requests, members, year }: { requests: LoanRequest[]; members: StoredMember[]; year: number }) {
   const [view, setView] = useState<'active' | 'closed'>('active')
   // loans approved before references existed get theirs (1FL, 2FL, …) the first time this tab opens
   useEffect(() => { if (requests.some((r) => (!r.ref || !r.no) && (r.status === 'approved' || r.status === 'paid'))) assignMissingRefs().catch(() => {}) }, [requests])
+  // Savings Loans from before the 10% was added upfront: corrected once (also stops their carried savings counting)
+  useEffect(() => { if (requests.some((r) => r.type === 'savings' && r.status === 'approved' && !r.upfront)) fixSavingsLoans(year).catch(() => {}) }, [requests, year])
   const active = requests.filter((r) => r.status === 'approved')
   const closed = requests.filter((r) => r.status === 'paid')
   const list = view === 'active' ? active : closed

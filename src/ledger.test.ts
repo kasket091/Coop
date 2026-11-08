@@ -51,3 +51,13 @@ it('a month range for carryover marks', () => {
   expect(monthRange(6, 10)).toEqual([6, 7, 8, 9, 10])
   expect(monthRange(10, 6)).toEqual([6, 7, 8, 9, 10])
 })
+
+it('carried-over savings (tied to a Savings Loan) are shown, not counted as saved', () => {
+  const l = ledgerFrom([
+    t({ kind: 'savings', amount: 6000, month: 5 }),
+    t({ kind: 'savings', amount: 5500, month: 6, loanId: 'SL1' }),
+  ], 2026)
+  expect(l.paid[6]).toBe(0)
+  expect(l.paid[5]).toBe(6000)
+  expect(l.carried[6]).toBe(5500)
+})

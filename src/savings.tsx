@@ -14,8 +14,10 @@ export function MySavings({ m, coop, year, action, extra, termination }: {
   const today = new Date()
   const s = memberSummary(m, coop, today, year)
   const closed = closedMonths(today, year)
-  const owed = s.missed.reduce((t, i) => t + missedOwed(s.monthlyDue - m.paid[i], closed - i), 0)
-  const state = (i: number) => (m.paid[i] >= s.monthlyDue ? 'paid' : s.missed.includes(i) ? 'missed' : i === closed ? 'due' : 'open')
+  const owed = s.missed.filter((i) => !((m.carried?.[i] ?? 0) > 0)).reduce((t, i) => t + missedOwed(s.monthlyDue - m.paid[i], closed - i), 0)
+  const isCarried = (i: number) => (m.carried?.[i] ?? 0) > 0
+  const missed = s.missed.filter((i) => !isCarried(i)) // carried months are already a Savings Loan, not a separate debt
+  const state = (i: number) => (m.paid[i] >= s.monthlyDue ? 'paid' : isCarried(i) ? 'carried' : missed.includes(i) ? 'missed' : i === closed ? 'due' : 'open')
 
   return (
     <section>
@@ -35,10 +37,10 @@ export function MySavings({ m, coop, year, action, extra, termination }: {
         {MONTHS.map((mo, i) => {
           const st = state(i)
           return (
-            <li key={mo} className={`cell ${st}`} aria-label={`${mo}: ${st === 'open' ? 'upcoming' : st === 'due' ? 'next due, 1st to 7th' : st}`}>
+            <li key={mo} className={`cell ${st}`} aria-label={`${mo}: ${st === 'open' ? 'upcoming' : st === 'due' ? 'next due, 1st to 7th' : st === 'carried' ? 'carried over to a Savings Loan' : st}`}>
               {mo}
               {st === 'paid' && <IconCheck />}
-              {st === 'missed' && <IconAlert />}
+              {(st === 'missed' || st === 'carried') && <IconAlert />}
             </li>
           )
         })}
@@ -47,11 +49,12 @@ export function MySavings({ m, coop, year, action, extra, termination }: {
         <span><i style={{ background: 'var(--navy)' }} />Paid</span>
         <span><i style={{ background: 'var(--red)' }} />Missed</span>
         <span><i style={{ border: '2px dashed var(--navy)' }} />Next due (1st–7th)</span>
+        {m.carried?.some((c) => c > 0) && <span><i style={{ background: '#f4c7c3', border: '1px solid var(--red)' }} />Carried over (Savings Loan)</span>}
       </div>
 
-      {s.missed.length > 0 && (
+      {missed.length > 0 && (
         <div className="alert" role="status">
-          <h2>{s.missed.length === 1 ? '1 missed month' : `${s.missed.length} missed months`}: {s.missed.map((i) => MONTHS[i]).join(', ')}</h2>
+          <h2>{missed.length === 1 ? '1 missed month' : `${missed.length} missed months`}: {missed.map((i) => MONTHS[i]).join(', ')}</h2>
           <p>Missed savings become a loan at 10% a month, added to the balance. Paying today costs about <b>{peso(owed)}</b>.</p>
         </div>
       )}

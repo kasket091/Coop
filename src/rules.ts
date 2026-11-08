@@ -1,6 +1,10 @@
 // HILAS Coop 2026 handbook rules. Every money number the app shows comes from here.
 
-export type Member = { id: number; name: string; heads: number; paid: number[]; interest: number[]; founder?: boolean }
+export type Member = {
+  id: number; name: string; heads: number; paid: number[]; interest: number[]; founder?: boolean
+  /** savings carried over into a Savings Loan, per month: shown red, never counted as saved */
+  carried?: number[]
+}
 
 export const PER_HEAD = 500
 export const DEFAULT_CYCLE_YEAR = 2026

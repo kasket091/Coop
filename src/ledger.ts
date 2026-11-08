@@ -13,15 +13,19 @@ export type Txn = {
 
 const cents = (x: number) => Math.round(x * 100) / 100
 
-/** Savings and interest per month for one cycle; voided entries and other kinds don't count. */
+/**
+ * Savings and interest per month for one cycle; voided entries and other kinds don't count. Savings tied to a
+ * Savings Loan (carried over, not paid) are kept apart in `carried`: shown red, never counted as saved.
+ */
 export function ledgerFrom(txns: Txn[], cycle: number) {
-  const paid = Array<number>(12).fill(0), interest = Array<number>(12).fill(0)
+  const paid = Array<number>(12).fill(0), interest = Array<number>(12).fill(0), carried = Array<number>(12).fill(0)
   for (const t of txns) {
     if (t.voidedAt || t.cycle !== cycle) continue
-    if (t.kind === 'savings') paid[t.month] = cents(paid[t.month] + t.amount)
+    if (t.kind === 'savings' && t.loanId) carried[t.month] = cents(carried[t.month] + t.amount)
+    else if (t.kind === 'savings') paid[t.month] = cents(paid[t.month] + t.amount)
     if (t.kind === 'interest') interest[t.month] = cents(interest[t.month] + t.amount)
   }
-  return { paid, interest }
+  return { paid, interest, carried }
 }
 
 export const quarterTotals = (months: number[]) => [0, 3, 6, 9].map((i) => cents(months[i] + months[i + 1] + months[i + 2]))
