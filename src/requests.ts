@@ -23,6 +23,8 @@ export type LoanRequest = {
   customPayments?: number
   carryovers?: number
   interestPayments?: number
+  /** a founder borrowing above their limit (needs 2 founding co-makers) */
+  overLimit?: boolean
   /** set when the admin approved without waiting for both co-makers */
   directApproval?: boolean
 }

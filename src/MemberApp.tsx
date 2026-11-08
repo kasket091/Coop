@@ -4,7 +4,7 @@ import { AccountTab, AlertsTab, LoansTab } from './member-tabs'
 import type { LoanRequest } from './requests'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
-import { signOutUser, summaryFor, watchComakerRequests, watchMember, watchMyRequests, watchSummary, type StoredMember, type Summary } from './store'
+import { signOutUser, summaryFor, watchComakerRequests, watchMember, watchMyRequests, watchMyTransactions, watchSummary, type StoredMember, type Summary, type Txn } from './store'
 import { PayRules } from './tabs'
 
 type Tab = 'savings' | 'loans' | 'alerts' | 'pay' | 'account'
@@ -14,11 +14,13 @@ export function MemberApp({ uid, year }: { uid: string; year: number }) {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [mine, setMine] = useState<LoanRequest[]>([])
   const [asked, setAsked] = useState<LoanRequest[]>([])
+  const [txns, setTxns] = useState<Txn[]>([])
   const [tab, setTab] = useState<Tab>('savings')
 
   useEffect(() => watchMember(uid, setMe), [uid])
   useEffect(() => watchSummary(setSummary), [])
   useEffect(() => watchMyRequests(uid, setMine), [uid])
+  useEffect(() => watchMyTransactions(uid, setTxns), [uid])
   useEffect(() => (me?.founder ? watchComakerRequests(uid, setAsked) : undefined), [uid, me?.founder])
 
   if (me === undefined) return <Shell year={year}><Loading /></Shell>
@@ -47,7 +49,7 @@ export function MemberApp({ uid, year }: { uid: string; year: number }) {
   return (
     <Shell year={year} tabs={tabs} current={tab} onTab={setTab}>
       {tab === 'savings' && <><MySavings m={me} coop={summaryFor(summary, me)} year={year} /><CoopSection summary={summary} /></>}
-      {tab === 'loans' && <LoansTab me={me} year={year} mine={mine} />}
+      {tab === 'loans' && <LoansTab me={me} year={year} mine={mine} txns={txns} />}
       {tab === 'alerts' && me.founder && <AlertsTab me={me} asked={asked} />}
       {tab === 'pay' && <PayRules />}
       {tab === 'account' && <AccountTab me={me} />}

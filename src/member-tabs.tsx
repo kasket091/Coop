@@ -1,46 +1,124 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { ADMIN_MEMBER_NAME } from './accounts'
 import { peso } from './format'
-import { requestStage, validateRequest, type LoanRequest, type LoanType } from './requests'
-import { loanLimit, monthsLeft } from './rules'
+import type { Txn } from './ledger'
+import {
+  balanceOf, comakerMode, monthInterest, requestStage, unpaidLoans, validateRequest, type LoanRequest, type LoanType,
+} from './requests'
+import { depositAmount, loanLimit, monthsLeft } from './rules'
 import {
   changePassword, createRequest, decideAsComaker, listFounders, signOutUser, withdrawRequest, type StoredMember,
 } from './store'
 import { Calculator, CONDITIONS, quoteText, termOptions, TYPES } from './tabs'
 
 const fmtDate = (ms: number) => new Date(ms).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
+const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
 
-// ---------- Loans: calculator + request + my requests ----------
-export function LoansTab({ me, year, mine }: { me: StoredMember; year: number; mine: LoanRequest[] }) {
+// ---------- Loans: remaining, active, requests, closed, transactions, new request, calculator ----------
+export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: number; mine: LoanRequest[]; txns: Txn[] }) {
+  const unpaid = unpaidLoans(mine, me.uid, me.sheetLoanBalance ?? 0)
+  const pending = mine.filter((r) => r.status === 'pending')
+  const closed = mine.filter((r) => r.status === 'paid' || r.status === 'declined' || r.status === 'withdrawn')
   return (
     <section>
-      <MyRequests mine={mine} />
-      <div className={mine.length ? 'section' : undefined}>
-        <RequestForm me={me} year={year} hasPending={mine.some((r) => r.status === 'pending')} />
+      <h1 style={{ fontSize: 22 }}>My loans</h1>
+      <div className={`unpaid ${unpaid.total > 0 ? 'owing' : ''}`} style={{ marginTop: 12 }}>
+        <div className="unpaid-head"><span>Current loans remaining</span><b>{peso(unpaid.total)}</b></div>
+        {unpaid.sheetBalance > 0 && <p className="note" style={{ marginTop: 4 }}>Includes {peso(unpaid.sheetBalance)} from the old Borrowers sheet.</p>}
+      </div>
+
+      <div className="section">
+        <h2>Active loans</h2>
+        {!unpaid.loans.length ? <p className="note">No active loans.</p> : (
+          <ul className="requests">
+            {unpaid.loans.map((r) => {
+              const paid = txns.filter((t) => t.loanId === r.id && !t.voidedAt && (t.kind === 'interest' || t.kind === 'principal'))
+              return (
+                <RequestCard key={r.id} r={r}>
+                  <ul className="rows" style={{ marginTop: 8 }}>
+                    <li><span>Still owed</span><b>{peso(balanceOf(r))}</b></li>
+                    {monthInterest(r) > 0 && <li><span>This month's interest</span><b>{peso(monthInterest(r))}</b></li>}
+                    <li><span>Paid so far</span><b>{peso(sum(paid.map((t) => t.amount)))}</b></li>
+                  </ul>
+                </RequestCard>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+
+      {pending.length > 0 && <MyRequests mine={pending} title="Waiting for approval" />}
+
+      <div className="section">
+        <h2>Closed loans</h2>
+        {!closed.length ? <p className="note">No closed loans yet.</p>
+          : <ul className="requests">{closed.map((r) => <RequestCard key={r.id} r={r}>{r.paidAt && <p className="note">Paid off {fmtDate(r.paidAt)}</p>}</RequestCard>)}</ul>}
+      </div>
+
+      <div className="section">
+        <h2>Payment transactions</h2>
+        <TxnList txns={txns} />
+      </div>
+
+      <div className="section">
+        <RequestForm me={me} year={year} hasPending={pending.length > 0} hasUnpaid={unpaid.total > 0} />
       </div>
       <div className="section"><Calculator member={me} year={year} /></div>
     </section>
   )
 }
 
-function RequestForm({ me, year, hasPending }: { me: StoredMember; year: number; hasPending: boolean }) {
+const KIND_LABEL: Record<Txn['kind'], string> = {
+  savings: 'Savings', interest: 'Interest paid', principal: 'Loan repaid', release: 'Loan released', note: 'Note',
+}
+
+/** A member's money history, newest first. Voided entries stay visible, crossed out. */
+export function TxnList({ txns, onVoid }: { txns: Txn[]; onVoid?: (t: Txn) => void }) {
+  if (!txns.length) return <p className="note">No transactions yet.</p>
+  return (
+    <ul className="txns">
+      {txns.map((t) => (
+        <li key={t.id} className={t.voidedAt ? 'voided' : undefined}>
+          <span className="txn-main">
+            <b>{KIND_LABEL[t.kind]}</b>
+            <small>{fmtDate(t.createdAt)} · {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][t.month]} {t.cycle}{t.note ? ` · ${t.note}` : ''}</small>
+            {t.voidedAt && <small className="void-reason">Voided: {t.voidReason}</small>}
+          </span>
+          <span className="txn-side">
+            {t.kind !== 'note' && <b>{t.kind === 'release' ? '' : '+'}{peso(t.amount)}</b>}
+            {onVoid && !t.voidedAt && <button className="btn-mini" onClick={() => onVoid(t)}>Void</button>}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function RequestForm({ me, year, hasPending, hasUnpaid }: { me: StoredMember; year: number; hasPending: boolean; hasUnpaid: boolean }) {
   const [founders, setFounders] = useState<{ id: string; name: string }[] | null>(null)
   const [type, setType] = useState<LoanType>('flex')
   const [amount, setAmount] = useState('')
   const [months, setMonths] = useState(1)
-  const [co, setCo] = useState<[string, string]>(['', ''])
+  const [picked, setPicked] = useState<[string, string]>(['', ''])
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => { listFounders().then(setFounders, () => setFounders([])) }, [])
 
   const today = new Date()
+  const saved = sum(me.paid)
   const options = termOptions(type, today, year)
   const term = options.includes(months) ? months : options[0] ?? 0
-  const capital = Number(amount.replace(/[^\d.]/g, '')) || 0
-  const choices = (founders ?? []).filter((f) => f.id !== me.uid)
+  const capital = type === 'deposit' ? depositAmount(saved) : Number(amount.replace(/[^\d.]/g, '')) || 0
+  const all = founders ?? []
+  const bryanId = all.find((f) => f.name === ADMIN_MEMBER_NAME)?.id
+  const recruiter = all.find((f) => f.id === me.recruiterId)
+  const mode = comakerMode({ borrower: me, amount: capital, type })
+  const overLimitChoices = all.filter((f) => f.id !== me.uid && f.id !== bryanId)
+  const comakerIds = mode === 'recruiter' ? (me.recruiterId ? [me.recruiterId] : []) : mode === 'two-founders' ? picked.filter(Boolean) : []
   const problem = validateRequest({
-    borrower: me, borrowerId: me.uid, comakerIds: co, founderIds: choices.map((f) => f.id),
-    type, amount: capital, months: term, today, year, hasPending,
+    borrower: me, borrowerId: me.uid, recruiterId: me.recruiterId, comakerIds, founderIds: all.map((f) => f.id), bryanId,
+    type, amount: capital, months: term, today, year, hasPending, hasUnpaid, savings: saved,
   })
 
   const submit = async (e: FormEvent) => {
@@ -48,13 +126,13 @@ function RequestForm({ me, year, hasPending }: { me: StoredMember; year: number;
     if (problem) return setError(problem)
     setBusy(true); setError(null)
     try {
-      const names = Object.fromEntries(choices.map((f) => [f.id, f.name]))
+      const names = Object.fromEntries(all.map((f) => [f.id, f.name]))
       await createRequest({
         borrowerId: me.uid, borrowerName: me.name, type, amount: capital, months: term, quote: quoteText(type, capital, term),
-        comakers: { [co[0]]: { name: names[co[0]], status: 'pending' }, [co[1]]: { name: names[co[1]], status: 'pending' } },
-        comakerIds: [...co], status: 'pending', createdAt: Date.now(),
+        comakers: Object.fromEntries(comakerIds.map((id) => [id, { name: names[id], status: 'pending' as const }])),
+        comakerIds, status: 'pending', createdAt: Date.now(), overLimit: mode === 'two-founders',
       })
-      setSent(true); setAmount(''); setCo(['', ''])
+      setSent(true); setAmount(''); setPicked(['', ''])
     } catch {
       setError("Couldn't send the request. Check your connection and try again.")
     } finally { setBusy(false) }
@@ -67,17 +145,20 @@ function RequestForm({ me, year, hasPending }: { me: StoredMember; year: number;
     <form onSubmit={submit}>
       <h1 style={{ fontSize: 22 }}>Request a loan</h1>
       <p className="plan">Limit {peso(loanLimit(me.heads))} · repay by December 15</p>
-      {sent && <p className="success" role="status">Request sent. Your co-makers will see it in their Alerts.</p>}
+      {sent && <p className="success" role="status">{comakerIds.length ? 'Request sent. Your co-maker will see it in their Alerts.' : 'Request sent to the admin.'}</p>}
       <div className="field">
         <label htmlFor="rq-type">Loan type</label>
-        <select id="rq-type" value={type} onChange={(e) => setType(e.target.value as LoanType)}>
+        <select id="rq-type" value={type} onChange={(e) => { setType(e.target.value as LoanType); setSent(false) }}>
           {Object.entries(TYPES).filter(([k]) => k !== 'events' || me.founder).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
         <p className="note" style={{ marginTop: 0 }}>{CONDITIONS[type]}</p>
       </div>
       <div className="field">
         <label htmlFor="rq-amt">Amount (₱)</label>
-        <input id="rq-amt" inputMode="numeric" value={amount} onChange={(e) => { setAmount(e.target.value); setSent(false) }} placeholder="e.g. 10000" />
+        {type === 'deposit'
+          ? <input id="rq-amt" value={capital.toLocaleString('en-PH')} readOnly aria-describedby="rq-amt-note" className="locked" />
+          : <input id="rq-amt" inputMode="numeric" value={amount} onChange={(e) => { setAmount(e.target.value); setSent(false) }} placeholder="e.g. 10000" />}
+        {type === 'deposit' && <p id="rq-amt-note" className="note" style={{ marginTop: 0 }}>80% of your {peso(saved)} savings. This amount is fixed.</p>}
       </div>
       <div className="field">
         <label htmlFor="rq-months">Months</label>
@@ -86,15 +167,31 @@ function RequestForm({ me, year, hasPending }: { me: StoredMember; year: number;
           {options.map((n) => <option key={n} value={n}>{n} {n === 1 ? 'month' : 'months'}</option>)}
         </select>
       </div>
-      {[0, 1].map((i) => (
-        <div className="field" key={i}>
-          <label htmlFor={`rq-co${i}`}>Co-maker {i + 1}</label>
-          <select id={`rq-co${i}`} value={co[i]} onChange={(e) => setCo((c) => (i === 0 ? [e.target.value, c[1]] : [c[0], e.target.value]))}>
-            <option value="">{founders ? 'Choose a founding member' : 'Loading…'}</option>
-            {choices.filter((f) => f.id !== co[1 - i]).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+
+      {mode === 'recruiter' && (
+        <div className="field">
+          <label htmlFor="rq-co">Co-maker (your recruiter)</label>
+          <select id="rq-co" value={me.recruiterId ?? ''} disabled={!recruiter}>
+            {recruiter ? <option value={recruiter.id}>{recruiter.name}</option> : <option value="">{founders ? 'No recruiter on record. Ask the admin.' : 'Loading…'}</option>}
           </select>
         </div>
-      ))}
+      )}
+      {mode === 'none' && type !== 'deposit' && capital > 0 && <p className="note">As a founding member within your limit, no co-maker is needed.</p>}
+      {mode === 'two-founders' && (
+        <>
+          <p className="note">This is above your {peso(loanLimit(me.heads))} limit, so 2 founding members must co-make it.</p>
+          {[0, 1].map((i) => (
+            <div className="field" key={i}>
+              <label htmlFor={`rq-co${i}`}>Co-maker {i + 1}</label>
+              <select id={`rq-co${i}`} value={picked[i]} onChange={(e) => setPicked((c) => (i === 0 ? [e.target.value, c[1]] : [c[0], e.target.value]))}>
+                <option value="">Choose a founding member</option>
+                {overLimitChoices.filter((f) => f.id !== picked[1 - i]).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </div>
+          ))}
+        </>
+      )}
+
       {capital > 0 && term > 0 && !problem && <p className="note">{quoteText(type, capital, term)}</p>}
       {(error || (capital > 0 && problem)) && <p className="alert" role="alert">{error ?? problem}</p>}
       <button className="btn wide" disabled={busy || !!problem}>{busy ? 'Sending…' : 'Send request'}</button>
@@ -112,24 +209,25 @@ export function RequestCard({ r, children }: { r: LoanRequest; children?: React.
         <span className={`stage stage-${requestStage(r).split(' ')[0].toLowerCase()}`}>{requestStage(r)}</span>
       </div>
       <p className="note" style={{ marginTop: 2 }}>{r.months} month{r.months === 1 ? '' : 's'} · {r.quote} · sent {fmtDate(r.createdAt)}</p>
-      <ul className="comakers">
-        {r.comakerIds.map((id) => (
-          <li key={id} className={`co co-${r.comakers[id]?.status}`}><span aria-hidden="true">{coMark(r.comakers[id]?.status)}</span> {r.comakers[id]?.name}
-            <span className="sr-only"> {r.comakers[id]?.status}</span></li>
-        ))}
-      </ul>
+      {r.comakerIds.length > 0 && (
+        <ul className="comakers">
+          {r.comakerIds.map((id) => (
+            <li key={id} className={`co co-${r.comakers[id]?.status}`}><span aria-hidden="true">{coMark(r.comakers[id]?.status)}</span> {r.comakers[id]?.name}
+              <span className="sr-only"> {r.comakers[id]?.status}</span></li>
+          ))}
+        </ul>
+      )}
       {children}
     </li>
   )
 }
 
-function MyRequests({ mine }: { mine: LoanRequest[] }) {
+function MyRequests({ mine, title }: { mine: LoanRequest[]; title: string }) {
   const [error, setError] = useState<string | null>(null)
-  if (!mine.length) return null
   const withdraw = (id: string) => { setError(null); withdrawRequest(id).catch(() => setError("Couldn't withdraw. Check your connection.")) }
   return (
-    <div>
-      <h1 style={{ fontSize: 22 }}>My requests</h1>
+    <div className="section">
+      <h2>{title}</h2>
       {error && <p className="alert" role="alert">{error}</p>}
       <ul className="requests">
         {mine.map((r) => (

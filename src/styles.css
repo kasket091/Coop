@@ -237,3 +237,16 @@ main.no-tabs { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
 .custom-pay .note { margin-top: 0; }
 .pay-buttons { display: flex; gap: 8px; }
 .pay-buttons > * { flex: 1; }
+
+/* v3: transaction history */
+.txns { list-style: none; margin: 8px 0 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--cream); }
+.txns li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.txns li:first-child { border-top: 0; }
+.txn-main { display: grid; gap: 2px; min-width: 0; }
+.txn-main b { color: var(--navy); font-size: 15px; }
+.txn-main small { font-size: 13px; color: var(--muted); }
+.txn-side { display: grid; justify-items: end; gap: 4px; flex-shrink: 0; }
+.txn-side b { color: var(--navy); white-space: nowrap; }
+.txns li.voided .txn-main b, .txns li.voided .txn-side b { text-decoration: line-through; color: var(--muted); }
+.void-reason { color: var(--red) !important; }
+input.locked { background: var(--cream); color: var(--navy); font-weight: 700; }
