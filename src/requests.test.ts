@@ -26,6 +26,8 @@ describe('validateRequest', () => {
   it('the co-maker must be your recruiter', () => expect(validateRequest({ ...base, comakerIds: ['f2'] })).toMatch(/recruiter/))
   it('a member with no recruiter on record is told to ask the admin', () =>
     expect(validateRequest({ ...base, recruiterId: undefined, comakerIds: [] })).toMatch(/admin/))
+  it('a recruiter missing from the board list is reported, not sent', () =>
+    expect(validateRequest({ ...base, recruiterId: 'gone', comakerIds: ['gone'] })).toMatch(/not on record/))
   it('refuses a member over the loan limit', () => expect(validateRequest({ ...base, amount: 96001 })).toMatch(/limit/))
   it('a founder within the limit sends no co-maker', () =>
     expect(validateRequest({ ...base, borrower: founder, borrowerId: 'f3', comakerIds: [] })).toBeNull())

@@ -25,6 +25,8 @@ export type LoanRequest = {
   interestPayments?: number
   /** a founder borrowing above their limit (needs 2 founding co-makers) */
   overLimit?: boolean
+  /** closed by the admin without recording money (e.g. a test loan) */
+  closedNoMoney?: boolean
   /** set when the admin approved without waiting for both co-makers */
   directApproval?: boolean
 }
@@ -82,7 +84,7 @@ export function validateRequest(r: RequestInput): string | null {
   if (mode === 'blocked') return `That is above your loan limit of ₱${loanLimit(r.borrower.heads).toLocaleString()}.`
   if (mode === 'none') return ids.length ? 'This loan needs no co-maker.' : null
   if (mode === 'recruiter') {
-    if (!r.recruiterId) return 'Your recruiter is not on record yet. Ask the admin.'
+    if (!r.recruiterId || !r.founderIds.includes(r.recruiterId)) return 'Your recruiter is not on record yet. Ask the admin.'
     return ids.length === 1 && ids[0] === r.recruiterId ? null : 'Your co-maker must be your recruiter.'
   }
   if (ids.length !== 2) return 'Over your limit: choose 2 founding members as co-makers.'

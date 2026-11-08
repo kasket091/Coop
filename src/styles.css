@@ -297,3 +297,5 @@ input.locked { background: var(--cream); color: var(--navy); font-weight: 700; }
   .dashboard h2 { break-after: avoid; }
   .grid-wrap { break-inside: auto; }
 }
+
+.resync tr.stray td { color: var(--red); font-weight: 700; }

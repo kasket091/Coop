@@ -139,6 +139,20 @@ type NewTxn = Omit<Txn, 'id' | 'createdAt' | 'cycle' | 'month'> & { month?: numb
 const txnRecord = (t: NewTxn, year: number, createdAt: number) =>
   Object.fromEntries(Object.entries({ ...t, month: t.month ?? ledgerMonth(year), cycle: year, createdAt }).filter(([, v]) => v !== undefined))
 
+/** Money can only be recorded once the one-time re-sync has turned the sheet into transactions. */
+async function requireMigrated() {
+  if (!(await getDoc(doc(db, 'settings', 'migration'))).data()?.v3) throw new Error('Run the one-time re-sync in the Coop tab first.')
+}
+
+/** Write many document changes in batches of 400 (Firestore allows 500 per batch). */
+async function commitChunks(ops: ((b: ReturnType<typeof writeBatch>) => void)[]) {
+  for (let i = 0; i < ops.length; i += 400) {
+    const batch = writeBatch(db)
+    ops.slice(i, i + 400).forEach((op) => op(batch))
+    await batch.commit()
+  }
+}
+
 /** Rebuilds a member's 12-month savings/interest from their live transactions, then the coop totals. */
 export async function rebuildLedger(memberId: string, year: number): Promise<void> {
   const mine = asTxns((await getDocs(query(txns, where('memberId', '==', memberId)))).docs)
@@ -150,6 +164,7 @@ export async function rebuildLedger(memberId: string, year: number): Promise<voi
 /** Admin records savings or interest received (not tied to a loan). */
 export async function addTransaction(m: StoredMember, kind: 'savings' | 'interest', amount: number, month: number, note: string, year: number) {
   if (!(amount > 0)) throw new Error('Enter an amount above ₱0.')
+  await requireMigrated()
   await setDoc(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind, amount, month, note }, year, Date.now()))
   await rebuildLedger(m.uid, year)
 }
@@ -186,6 +201,7 @@ function restoreLoan(tx: Transaction, loanId: string, b: LoanSnapshot) {
 
 /** Only a still-pending request can be decided. Approving records the loan going out (`release`). */
 export async function adminDecide(id: string, status: 'approved' | 'declined', year: number, direct = false) {
+  if (status === 'approved') await requireMigrated()
   let memberId = ''
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
@@ -211,6 +227,7 @@ export async function adminDecide(id: string, status: 'approved' | 'declined', y
  * only once it is paid.
  */
 async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number>; entries: { kind: TxnKind; amount: number; note: string }[] }) {
+  await requireMigrated()
   let memberId = ''
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
@@ -225,6 +242,17 @@ async function loanAction(id: string, year: number, act: (r: LoanRequest) => { u
     memberId = r.borrowerId
   })
   await rebuildLedger(memberId, year)
+}
+
+/** Closes a loan that has no money recorded against it (e.g. a test loan), without recording any money. */
+export async function closeLoanNoMoney(id: string) {
+  const live = asTxns((await getDocs(query(txns, where('loanId', '==', id)))).docs).filter((t) => !t.voidedAt)
+  if (live.length) throw new Error('This loan has payments recorded. Void them first, or use Mark as paid.')
+  await runTransaction(db, async (tx) => {
+    const ref = doc(db, 'loanRequests', id)
+    if ((await tx.get(ref)).data()?.status !== 'approved') throw new Error('This loan is no longer open.')
+    tx.update(ref, { status: 'paid', paidAt: Date.now(), closedNoMoney: true })
+  })
 }
 
 const php = (n: number) => `₱${n.toLocaleString('en-PH', { maximumFractionDigits: 2 })}`
@@ -330,6 +358,9 @@ export async function resetLogin(m: StoredMember): Promise<void> {
   batch.delete(doc(db, 'members', m.uid))
   if (m.founder) { batch.set(doc(db, 'founders', uid), { name: m.name }); batch.delete(doc(db, 'founders', m.uid)) }
   if (m.loginKey) batch.set(doc(db, 'logins', m.loginKey), { email, name: m.name })
+  const moves: ((b: ReturnType<typeof writeBatch>) => void)[] = []
+  for (const d of (await getDocs(query(txns, where('memberId', '==', m.uid)))).docs) moves.push((b) => b.update(d.ref, { memberId: uid }))
+  for (const d of (await getDocs(query(collection(db, 'members'), where('recruiterId', '==', m.uid)))).docs) moves.push((b) => b.update(d.ref, { recruiterId: uid }))
   for (const d of (await getDocs(query(requests, where('borrowerId', '==', m.uid)))).docs) batch.update(d.ref, { borrowerId: uid })
   for (const d of (await getDocs(query(requests, where('comakerIds', 'array-contains', m.uid)))).docs) {
     const r = d.data() as LoanRequest
@@ -337,6 +368,7 @@ export async function resetLogin(m: StoredMember): Promise<void> {
     batch.update(d.ref, { comakerIds: r.comakerIds.map((id) => (id === m.uid ? uid : id)), comakers: { ...rest, [uid]: entry } })
   }
   await batch.commit()
+  await commitChunks(moves) // their money history and their recruits follow them to the new login
   await recomputeSummary(await allMembers())
 }
 
@@ -363,7 +395,11 @@ export async function saveSheetLoanBalance(m: StoredMember, amount: number, year
 export const saveHeads = (uid: string, heads: number) => updateDoc(doc(db, 'members', uid), { heads })
 
 // ---------- one-time switch to transactions (v3) ----------
-export type ResyncRow = { name: string; isNew: boolean; savingsNow: number; savingsSheet: number; interestNow: number; interestSheet: number }
+export type ResyncRow = {
+  name: string; isNew: boolean; savingsNow: number; savingsSheet: number; interestNow: number; interestSheet: number
+  /** in the app but not on the sheet: the re-sync would zero them, so it refuses to run */
+  appOnly?: boolean
+}
 
 export const watchMigrated = (cb: (done: boolean) => void) =>
   onSnapshot(doc(db, 'settings', 'migration'), (s) => cb(!!s.data()?.v3))
@@ -373,10 +409,15 @@ const sumOf = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) * 100) 
 /** What the re-sync would change, per member (app now → sheet). */
 export async function previewResync(): Promise<ResyncRow[]> {
   const [sheet, members] = [await loadMembers(), await allMembers()]
-  return sheet.map((row) => {
-    const m = members.find((x) => normalizeName(x.name) === normalizeName(row.name))
-    return { name: row.name, isNew: !m, savingsNow: sumOf(m?.paid ?? []), savingsSheet: sumOf(row.paid), interestNow: sumOf(m?.interest ?? []), interestSheet: sumOf(row.interest) }
-  })
+  const onSheet = new Set(sheet.map((r) => normalizeName(r.name)))
+  return [
+    ...sheet.map((row) => {
+      const m = members.find((x) => normalizeName(x.name) === normalizeName(row.name))
+      return { name: row.name, isNew: !m, savingsNow: sumOf(m?.paid ?? []), savingsSheet: sumOf(row.paid), interestNow: sumOf(m?.interest ?? []), interestSheet: sumOf(row.interest) }
+    }),
+    ...members.filter((m) => !onSheet.has(normalizeName(m.name)) && (sumOf(m.paid) > 0 || sumOf(m.interest) > 0 || m.heads > 0))
+      .map((m) => ({ name: m.name, isNew: false, appOnly: true, savingsNow: sumOf(m.paid), savingsSheet: 0, interestNow: sumOf(m.interest), interestSheet: 0 })),
+  ]
 }
 
 /**
@@ -387,9 +428,13 @@ export async function runResync(onProgress: (msg: string) => void): Promise<void
   const year = 2026
   if ((await getDoc(doc(db, 'settings', 'migration'))).data()?.v3) throw new Error('The re-sync already ran.')
   const sheet = await loadMembers()
+  const onSheet = new Set(sheet.map((r) => normalizeName(r.name)))
+  const strays = (await allMembers()).filter((m) => !onSheet.has(normalizeName(m.name)) && (sumOf(m.paid) > 0 || sumOf(m.interest) > 0 || m.heads > 0))
+  if (strays.length) throw new Error(`Not on the sheet, so the re-sync would zero them: ${strays.map((m) => m.name).join(', ')}. Fix their names to match the sheet first.`)
   for (const row of importRows(sheet, (await allMembers()).map((m) => m.name))) {
     onProgress(`Adding ${row.name}…`)
     if (row.heads > 0) await addMember({ name: row.name, heads: row.heads, founder: isBoardName(row.name), id: row.id, year }, false)
+    else await setDoc(doc(collection(db, 'members')), { id: row.id, name: row.name, heads: 0, founder: false, paid: zeros(), interest: zeros(), cycle: year, createdAt: Date.now(), hasLogin: false, rebate: 0 })
   }
   const members = await allMembers()
   const byName = (n: string) => members.find((m) => normalizeName(m.name) === normalizeName(n))
@@ -398,8 +443,9 @@ export async function runResync(onProgress: (msg: string) => void): Promise<void
   for (const row of sheet) {
     const m = byName(row.name)
     if (!m) continue
-    row.paid.forEach((amount, month) => { if (amount > 0) writes.push({ ref: doc(txns), data: txnRecord({ memberId: m.uid, memberName: m.name, kind: 'savings', amount, month, note: 'From the 2026 sheet' }, year, now) }) })
-    row.interest.forEach((amount, month) => { if (amount > 0) writes.push({ ref: doc(txns), data: txnRecord({ memberId: m.uid, memberName: m.name, kind: 'interest', amount, month, note: 'From the 2026 sheet' }, year, now) }) })
+    // fixed ids: if the re-sync stops partway and runs again, it overwrites instead of counting twice
+    row.paid.forEach((amount, month) => { if (amount > 0) writes.push({ ref: doc(txns, `sheet${year}_${m.uid}_savings_${month}`), data: txnRecord({ memberId: m.uid, memberName: m.name, kind: 'savings', amount, month, note: 'From the 2026 sheet' }, year, now) }) })
+    row.interest.forEach((amount, month) => { if (amount > 0) writes.push({ ref: doc(txns, `sheet${year}_${m.uid}_interest_${month}`), data: txnRecord({ memberId: m.uid, memberName: m.name, kind: 'interest', amount, month, note: 'From the 2026 sheet' }, year, now) }) })
   }
   for (const m of members) {
     const recruiter = recruiterOf(m.name)
@@ -407,6 +453,9 @@ export async function runResync(onProgress: (msg: string) => void): Promise<void
     writes.push({ ref: doc(db, 'members', m.uid), data: { founder: board, ...(recruiter ? { recruiterId: byName(recruiter)?.uid ?? deleteField() } : {}) } })
     if (board) writes.push({ ref: doc(db, 'founders', m.uid), data: { name: m.name } })
   }
+  // only the 11 board members keep co-maker powers
+  const strayFounders = (await getDocs(collection(db, 'founders'))).docs.filter((d) => !members.some((m) => m.uid === d.id && isBoardName(m.name)))
+  await commitChunks(strayFounders.map((d) => (b) => b.delete(d.ref)))
   for (let i = 0; i < writes.length; i += 400) {
     onProgress(`Saving ${Math.min(i + 400, writes.length)} of ${writes.length}…`)
     const batch = writeBatch(db)
@@ -432,6 +481,13 @@ export async function recomputeSummary(members: StoredMember[]): Promise<void> {
   batch.set(doc(db, 'coop', 'summary'), summary)
   for (const m of members) if ((m.rebate ?? 0) !== rebates[m.uid]) batch.update(doc(db, 'members', m.uid), { rebate: rebates[m.uid] })
   await batch.commit()
+}
+
+/** Rebuilds every member's 12-month totals from transactions (after a dropped connection, for example). */
+export async function rebuildAllLedgers(year: number): Promise<void> {
+  const [members, all] = [await allMembers(), asTxns((await getDocs(txns)).docs)]
+  await commitChunks(members.map((m) => (b) => b.update(doc(db, 'members', m.uid), ledgerFrom(all.filter((t) => t.memberId === m.uid), year))))
+  await recomputeSummary(await allMembers())
 }
 
 async function allMembers(): Promise<StoredMember[]> {

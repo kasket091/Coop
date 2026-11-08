@@ -12,7 +12,7 @@ import {
   addMember, addTransaction, adminDecide, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, previewResync, recomputeSummary, renameMember, resetLogin, runResync, saveHeads, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchMigrated, watchSummary,
-  type ResyncRow, type StoredMember, type Summary, type Txn,
+  type ResyncRow, type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers,
 } from './store'
 
 type Tab = 'members' | 'loans' | 'requests' | 'dashboard' | 'coop'
@@ -24,6 +24,8 @@ export function AdminApp({ year }: { year: number }) {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [txns, setTxns] = useState<Txn[]>([])
   const [tab, setTab] = useState<Tab>('members')
+  const [migrated, setMigrated] = useState<boolean | null>(null)
+  useEffect(() => watchMigrated(setMigrated), [])
   useEffect(() => watchAllMembers(setMembers), [])
   useEffect(() => watchAllRequests(setRequests), [])
   useEffect(() => watchSummary(setSummary), [])
@@ -40,6 +42,9 @@ export function AdminApp({ year }: { year: number }) {
   return (
     <Shell year={year} tabs={tabs} current={tab} onTab={setTab}>
       <p className="admin-flag">Admin</p>
+      {migrated === false && tab !== 'coop' && (
+        <p className="alert" role="status">Run the one-time re-sync in the <button className="link inline" onClick={() => setTab('coop')}>Coop tab</button> before recording any money or approving loans.</p>
+      )}
       {!members ? <Loading />
         : tab === 'members' ? <Members members={members} requests={requests} txns={txns} year={year} />
         : tab === 'loans' ? <LoansAdmin requests={requests} members={members} />
@@ -287,6 +292,10 @@ function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanReq
                 onClick={() => window.confirm(`Mark ${m.name}'s loan as fully paid (${peso(balanceOf(r))})?`) && run(r.id, () => markLoanPaid(r.id, year))}>
                 Mark as paid
               </button>
+              <button className="btn-mini" disabled={busy === r.id}
+                onClick={() => window.confirm(`Close this loan WITHOUT recording any money? Use this only for a test loan or one entered by mistake.`) && run(r.id, () => closeLoanNoMoney(r.id))}>
+                Close (no money)
+              </button>
               {monthInterest(r) > 0 && (<>
                 <button className="btn-mini" disabled={busy === r.id}
                   onClick={() => window.confirm(`${m.name} paid this month's interest of ${peso(monthInterest(r))}? The ${peso(balanceOf(r))} balance stays.`) && run(r.id, () => payLoanInterest(r.id, year))}>
@@ -451,7 +460,9 @@ function CoopAdmin({ members, summary, year }: { members: StoredMember[]; summar
       <h1 style={{ fontSize: 22 }}>Coop {year}</h1>
       <CoopSection summary={summary} />
       {summary && <p className="note">Top borrower: {coopSummary(members).top?.name ?? 'none yet'} (only the admin sees this)</p>}
-      <button className="copy wide section" onClick={() => run(() => recomputeSummary(members))}>Recalculate totals</button>
+      <button className="copy wide section" disabled={!!progress} onClick={() => run(async () => { setProgress('Recalculating…'); await (migrated ? rebuildAllLedgers(year) : recomputeSummary(members)) })}>
+        {migrated ? 'Rebuild every member\'s totals' : 'Recalculate totals'}
+      </button>
 
       {migrated === false && year === 2026 && (
         <div className="section">
@@ -464,15 +475,17 @@ function CoopAdmin({ members, summary, year }: { members: StoredMember[]; summar
               <table className="resync">
                 <thead><tr><th>Member</th><th>Savings (app → sheet)</th><th>Interest (app → sheet)</th></tr></thead>
                 <tbody>
-                  {preview.filter((r) => r.isNew || r.savingsNow !== r.savingsSheet || r.interestNow !== r.interestSheet).map((r) => (
-                    <tr key={r.name}><td>{r.name}{r.isNew ? ' (new)' : ''}</td>
+                  {preview.filter((r) => r.appOnly || r.isNew || r.savingsNow !== r.savingsSheet || r.interestNow !== r.interestSheet).map((r) => (
+                    <tr key={r.name} className={r.appOnly ? 'stray' : undefined}><td>{r.name}{r.isNew ? ' (new)' : ''}{r.appOnly ? ' (not on the sheet!)' : ''}</td>
                       <td>{peso(r.savingsNow)} → {peso(r.savingsSheet)}</td><td>{peso(r.interestNow)} → {peso(r.interestSheet)}</td></tr>
                   ))}
                 </tbody>
               </table>
-              <p className="note">{preview.length} members on the sheet; the rows above change. Everyone else stays the same.</p>
+              {preview.some((r) => r.appOnly)
+                ? <p className="alert" role="alert">Members marked “not on the sheet” would lose their totals, so the re-sync won't run. Fix their names (Members → Fix name) to match the sheet first.</p>
+                : <p className="note">{preview.length} members on the sheet; the rows above change. Everyone else stays the same.</p>}
               <div className="field"><label htmlFor="sy">Type <b>SYNC</b> to run it</label><input id="sy" value={syncTyped} onChange={(e) => setSyncTyped(e.target.value)} autoComplete="off" /></div>
-              <button className="btn wide" disabled={syncTyped.trim() !== 'SYNC' || !!progress} onClick={() => run(async () => { await runResync(setProgress); setPreview(null) })}>{progress ?? 'Run the re-sync'}</button>
+              <button className="btn wide" disabled={syncTyped.trim() !== 'SYNC' || !!progress || preview.some((r) => r.appOnly)} onClick={() => run(async () => { await runResync(setProgress); setPreview(null) })}>{progress ?? 'Run the re-sync'}</button>
             </>
           )}
         </div>

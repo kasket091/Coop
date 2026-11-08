@@ -60,7 +60,7 @@ service cloud.firestore {
         return (ids().size() == 0 && (next().type == 'deposit' || isFounder(me())))
           || (ids().size() == 1 && ids()[0] == meDoc().recruiterId
               && next().comakers[ids()[0]].status == 'pending')
-          || (ids().size() == 2 && ids()[0] != ids()[1] && !(me() in ids())
+          || (ids().size() == 2 && isFounder(me()) && ids()[0] != ids()[1] && !(me() in ids())
               && isFounder(ids()[0]) && isFounder(ids()[1]) && notAdminMember(ids()[0]) && notAdminMember(ids()[1])
               && next().comakers[ids()[0]].status == 'pending' && next().comakers[ids()[1]].status == 'pending');
       }

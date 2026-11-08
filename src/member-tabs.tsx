@@ -86,7 +86,7 @@ export function TxnList({ txns, onVoid }: { txns: Txn[]; onVoid?: (t: Txn) => vo
           </span>
           <span className="txn-side">
             {t.kind !== 'note' && <b>{t.kind === 'release' ? '' : '+'}{peso(t.amount)}</b>}
-            {onVoid && !t.voidedAt && <button className="btn-mini" onClick={() => onVoid(t)}>Void</button>}
+            {onVoid && !t.voidedAt && (t.kind !== 'note' || t.loanId) && <button className="btn-mini" onClick={() => onVoid(t)}>Void</button>}
           </span>
         </li>
       ))}
