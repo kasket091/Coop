@@ -4,3 +4,4 @@ dist/
 .impeccable/review/
 .impeccable/mocks/
 .impeccable/hook.cache.json
+*.tsbuildinfo
