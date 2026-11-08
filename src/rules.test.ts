@@ -76,6 +76,13 @@ describe('dividends', () => {
   it('dividend per head = (interest − rebate) / heads', () => {
     expect(coopSummary(members).dividendPerHead).toBeCloseTo((50158.83 - 1474.7649) / 14, 2)
   })
+  it('a terminated top borrower is skipped: the next highest gets the 3%', () => {
+    const c = coopSummary([{ ...member('A', 12, 49158.83), terminated: { at: 1, reason: 'x' } }, member('B', 2, 1000)])
+    expect(c.top?.name).toBe('B')
+    expect(c.top?.rebate).toBeCloseTo(30, 2)
+    // A's interest still counts in the pool
+    expect(c.totalInterest).toBeCloseTo(50158.83, 2)
+  })
   it('no interest means no top borrower', () => {
     const c = coopSummary([member('A', 2)])
     expect(c.top).toBeNull()

@@ -520,6 +520,7 @@ export async function restoreMember(m: StoredMember, year: number) {
   batch.update(doc(db, 'members', m.uid), { terminated: deleteField() })
   batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0, note: 'Account restored by the admin' }, year, Date.now()))
   await batch.commit()
+  await recomputeSummary(await allMembers()) // a restored top borrower gets the 3% back
 }
 
 /** The member's unpaid balance from the old Borrowers sheet: typed by the admin, every change logged. */

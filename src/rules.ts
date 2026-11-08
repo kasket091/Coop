@@ -4,6 +4,8 @@ export type Member = {
   id: number; name: string; heads: number; paid: number[]; interest: number[]; founder?: boolean
   /** savings carried over into a Savings Loan, per month: shown red, never counted as saved */
   carried?: number[]
+  /** a terminated account can't be the top borrower */
+  terminated?: unknown
 }
 
 export const PER_HEAD = 500
@@ -64,6 +66,7 @@ export function coopSummary(members: Member[]): CoopSummary {
   const totalInterest = cents(sum(members.map((m) => sum(m.interest))))
   let top: CoopSummary['top'] = null
   for (const m of members) {
+    if (m.terminated) continue // the 3% goes to the highest active member instead
     const interest = cents(sum(m.interest))
     if (interest > 0 && (!top || interest > top.interest)) top = { name: m.name, interest, rebate: interest * 0.03 }
   }
