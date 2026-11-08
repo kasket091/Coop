@@ -107,7 +107,8 @@ main {
 }
 .picker li:first-child button { border-top: 0; }
 .picker li button:hover { background: var(--cream-2); }
-.picker li span { font-size: 14px; color: var(--muted); }
+.picker li span { font-size: 14px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.picker li button { gap: 12px; }
 
 /* ---------- my savings ---------- */
 .who { display: flex; justify-content: space-between; align-items: center; gap: 12px; }

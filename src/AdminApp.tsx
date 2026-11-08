@@ -48,7 +48,8 @@ function Members({ members, year }: { members: StoredMember[]; year: number }) {
   const [adding, setAdding] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const selected = members.find((m) => m.uid === open)
-  const back = (msg?: string) => { setOpen(null); setNotice(msg ?? null) }
+  const back = (msg?: string) => { setOpen(null); setNotice(msg ?? null); window.scrollTo(0, 0) }
+  const show = (uid: string) => { setOpen(uid); window.scrollTo(0, 0) }
   if (selected) return <MemberDetail m={selected} members={members} year={year} onBack={back} />
   if (adding) return <AddMember year={year} onDone={() => setAdding(false)} />
   const list = members.filter((m) => m.name.toLowerCase().includes(q.trim().toLowerCase()))
@@ -61,7 +62,7 @@ function Members({ members, year }: { members: StoredMember[]; year: number }) {
         <input id="mq" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" /></div>
       <ul className="panel">
         {list.map((m) => (
-          <li key={m.uid}><button onClick={() => setOpen(m.uid)}>
+          <li key={m.uid}><button onClick={() => show(m.uid)}>
             {m.name}{m.founder ? ' ★' : ''}
             <span>{m.heads ? `${m.heads} heads · ${peso(sum(m.paid))}` : 'left · interest only'}</span>
           </button></li>
@@ -204,7 +205,7 @@ function Requests({ requests }: { requests: LoanRequest[] }) {
       <h1 style={{ fontSize: 22 }}>Loan requests</h1>
       <p className="plan">Approve unlocks once both co-makers have approved (✓).</p>
       {error && <p className="alert" role="alert">{error}</p>}
-      {!pending.length && <p className="note section">No pending requests.</p>}
+      {!pending.length && <p className="note section">No pending requests. When a member asks for a loan it appears here, with a ✓ beside each co-maker who approves.</p>}
       <ul className="requests">
         {pending.map((r) => (
           <RequestCard key={r.id} r={r}>

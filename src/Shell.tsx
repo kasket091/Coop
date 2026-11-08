@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 
 export type TabDef<T extends string> = { id: T; label: string; Icon: () => JSX.Element; badge?: number }
 
@@ -6,6 +6,7 @@ export type TabDef<T extends string> = { id: T; label: string; Icon: () => JSX.E
 export function Shell<T extends string>({ year, tabs, current, onTab, children }: {
   year: number; tabs?: TabDef<T>[]; current?: T; onTab?: (t: T) => void; children: ReactNode
 }) {
+  useEffect(() => { window.scrollTo(0, 0) }, [current]) // each tab opens at its top
   return (
     <>
       <header className="band">
