@@ -1,8 +1,10 @@
 import type { Member } from './rules'
 
 const SHEET_ID = '19qKH_WibPzvbi2BJ4kK6CgY7D5tke7A88Y0D4BGClbE'
+// Rows to 80 leave room for new members; headers=1 stops gviz guessing the header count.
 const csvUrl = (sheet: string, range: string) =>
-  `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheet)}&range=${range}`
+  `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&headers=1&sheet=${encodeURIComponent(sheet)}&range=${range}`
+const TIMEOUT_MS = 15000
 
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = []
@@ -37,10 +39,16 @@ const clean = (name: string) => name.trim().replace(/\s+/g, ' ')
  * People only on InterestPaid (e.g. a member who left) come back with 0 heads: their interest still funds the dividend.
  */
 export function parseMembers(savingsCsv: string, interestCsv: string): Member[] {
-  const interestRows = parseCsv(interestCsv).slice(1).filter((r) => r[1]?.trim())
+  // gviz answers a renamed or missing tab with the first tab's content (HTTP 200), so check the layout.
+  const [savingsHead, ...savingsBody] = parseCsv(savingsCsv)
+  const [interestHead, ...interestBody] = parseCsv(interestCsv)
+  if (savingsHead?.[1]?.trim() !== 'Share Holders' || savingsHead?.[2]?.trim() !== '# Heads') throw new Error('Unexpected sheet layout: Members Monthly Savings')
+  if (interestHead?.[2]?.trim() !== 'Jan') throw new Error('Unexpected sheet layout: InterestPaid')
+  const isMemberRow = (r: string[]) => toNumber(r[0]) > 0 && !!r[1]?.trim() // totals and labels below the table have no ID
+  const interestRows = interestBody.filter(isMemberRow)
   const interest = new Map(interestRows.map((r) => [key(r[1]), twelve(r, 2)]))
-  const members: Member[] = parseCsv(savingsCsv).slice(1)
-    .filter((r) => r[1]?.trim())
+  const members: Member[] = savingsBody
+    .filter(isMemberRow)
     .map((r) => ({
       id: toNumber(r[0]),
       name: clean(r[1]),
@@ -48,6 +56,7 @@ export function parseMembers(savingsCsv: string, interestCsv: string): Member[] 
       paid: twelve(r, 5),
       interest: interest.get(key(r[1])) ?? Array(12).fill(0),
     }))
+  if (!members.some((m) => m.heads > 0)) throw new Error('Unexpected sheet layout: no members with heads')
   const known = new Set(members.map((m) => key(m.name)))
   for (const r of interestRows) {
     if (!known.has(key(r[1]))) members.push({ id: toNumber(r[0]), name: clean(r[1]), heads: 0, paid: Array(12).fill(0), interest: twelve(r, 2) })
@@ -56,15 +65,15 @@ export function parseMembers(savingsCsv: string, interestCsv: string): Member[] 
 }
 
 async function getText(fetchFn: typeof fetch, url: string) {
-  const res = await fetchFn(url)
+  const res = await fetchFn(url, { signal: AbortSignal.timeout(TIMEOUT_MS) })
   if (!res.ok) throw new Error(`Sheet request failed (${res.status})`)
   return res.text()
 }
 
 export async function loadMembers(fetchFn: typeof fetch = fetch.bind(globalThis)): Promise<Member[]> {
   const [savings, interest] = await Promise.all([
-    getText(fetchFn, csvUrl('Members Monthly Savings', 'A1:R35')),
-    getText(fetchFn, csvUrl('InterestPaid', 'A1:N35')),
+    getText(fetchFn, csvUrl('Members Monthly Savings', 'A1:R80')),
+    getText(fetchFn, csvUrl('InterestPaid', 'A1:N80')),
   ])
   return parseMembers(savings, interest)
 }

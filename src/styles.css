@@ -2,14 +2,13 @@
   --navy: #1c1b57;
   --navy-2: #2a2973;
   --cyan: #09c3e4;
-  --teal: #03989e;
   --red: #a42a24;
   --red-wash: #f8ebea;
   --cream: #f2f0e2;
-  --ground: #fbfaf5;
+  --cream-2: #e8e5d2; /* cream hover/pressed */
   --ink: #1a1936;
   --muted: #55536e;
-  --line: #e2dfcf;
+  --line: #d4d0b8; /* visible on cream and white */
   --radius: 10px;
   --tab-h: 64px;
   --gutter: max(16px, calc((100vw - 640px) / 2 + 16px)); /* keeps band and tabs on the 640px content column */
@@ -22,14 +21,15 @@
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
-  background: var(--ground);
+  background: #fff;
   color: var(--ink);
+  caret-color: var(--navy);
   font: 500 16px/1.5 var(--ui);
   font-variant-numeric: tabular-nums;
 }
 ::selection { background: var(--cyan); color: var(--navy); }
 button, input, select { font: inherit; color: inherit; }
-:focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; border-radius: 4px; }
+:focus-visible { outline: 3px solid var(--navy); outline-offset: 2px; border-radius: 4px; }
 h1, h2, h3 { margin: 0; line-height: 1.2; color: var(--navy); }
 p { margin: 0; }
 
@@ -58,7 +58,7 @@ main {
 }
 .tabs button {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  border: 0; background: none; color: var(--muted); font-size: 12px; font-weight: 600;
+  border: 0; background: none; color: var(--muted); font-size: 13px; font-weight: 600;
   position: relative; cursor: pointer;
 }
 .tabs button[aria-current='page'] { color: var(--navy); }
@@ -71,7 +71,7 @@ main {
 /* ---------- shared pieces ---------- */
 .section { margin-top: 28px; }
 .section > h2 { font-size: 15px; font-weight: 700; margin-bottom: 10px; }
-.panel { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); }
+.panel { background: var(--cream); border: 1px solid var(--line); border-radius: var(--radius); }
 .rows { list-style: none; margin: 0; padding: 0; }
 .rows li {
   display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
@@ -80,11 +80,11 @@ main {
 .rows li:first-child { border-top: 0; }
 .rows li span:first-child { color: var(--muted); }
 .rows li b { font-weight: 700; color: var(--navy); text-align: right; }
-.note { font-size: 13px; color: var(--muted); margin-top: 8px; }
-.fine { font-size: 13px; font-style: italic; color: var(--red); }
+.note { font-size: 14px; color: var(--muted); margin-top: 8px; }
+.fine { font-size: 14px; font-style: italic; color: var(--red); }
 .link {
   border: 0; background: none; padding: 10px 4px; min-height: 44px;
-  color: var(--teal); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+  color: var(--navy); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
 }
 .btn {
   min-height: 48px; padding: 0 20px; border-radius: var(--radius); border: 0;
@@ -103,10 +103,10 @@ main {
 .picker ul { list-style: none; padding: 0; margin: 16px 0 0; }
 .picker li button {
   width: 100%; min-height: 56px; display: flex; justify-content: space-between; align-items: center;
-  padding: 0 16px; border: 0; border-top: 1px solid var(--line); background: #fff; text-align: left; cursor: pointer;
+  padding: 0 16px; border: 0; border-top: 1px solid var(--line); background: var(--cream); text-align: left; cursor: pointer;
 }
 .picker li:first-child button { border-top: 0; }
-.picker li button:hover { background: var(--cream); }
+.picker li button:hover { background: var(--cream-2); }
 .picker li span { font-size: 14px; color: var(--muted); }
 
 /* ---------- my savings ---------- */
@@ -123,13 +123,13 @@ main {
 .cell {
   display: grid; place-items: center; align-content: center; gap: 2px;
   height: 64px; border-radius: 8px; border: 1.5px solid var(--line); background: #fff;
-  font-size: 12px; font-weight: 700; color: var(--muted);
+  font-size: 14px; font-weight: 700; color: var(--muted);
 }
 .cell svg { width: 16px; height: 16px; }
 .cell.paid { background: var(--navy); border-color: var(--navy); color: #fff; }
 .cell.missed { background: var(--red); border-color: var(--red); color: #fff; }
-.cell.due { border: 2px dashed var(--teal); color: var(--navy); }
-.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.cell.due { border: 2px dashed var(--navy); color: var(--navy); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 14px; color: var(--muted); }
 .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 
 .alert { margin-top: 20px; padding: 14px 16px; border-radius: var(--radius); background: var(--red-wash); color: var(--red); }
@@ -142,17 +142,12 @@ main {
 .payout p { color: #d6d5ee; font-size: 14px; margin-top: 4px; }
 
 /* ---------- states ---------- */
-.skeleton { height: 18px; border-radius: 6px; background: linear-gradient(90deg, #eeecdf, #f7f6ee, #eeecdf); background-size: 200% 100%; animation: shimmer 1.2s ease-out infinite; margin-top: 12px; }
+.skeleton { height: 18px; border-radius: 6px; background: linear-gradient(90deg, var(--cream), var(--cream-2), var(--cream)); background-size: 200% 100%; animation: shimmer 1.2s ease-out infinite; margin-top: 12px; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 .error { text-align: center; padding-top: 48px; }
 .error p { margin: 8px 0 20px; color: var(--muted); }
 
 /* ---------- loans & pay ---------- */
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th, td { padding: 10px 12px; text-align: right; border-top: 1px solid var(--line); }
-th:first-child, td:first-child { text-align: left; }
-thead th { border-top: 0; color: var(--muted); font-weight: 600; }
-tfoot td { font-weight: 700; color: var(--navy); }
 .quote { margin-top: 18px; }
 .quote .big { font-family: var(--display); font-size: 40px; color: var(--navy); line-height: 1; }
 .channel { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px; border-top: 1px solid var(--line); }
@@ -160,9 +155,12 @@ tfoot td { font-weight: 700; color: var(--navy); }
 .channel b { display: block; color: var(--navy); }
 .channel span { font-size: 14px; color: var(--muted); }
 .copy { min-height: 44px; min-width: 76px; border: 1.5px solid var(--navy); background: #fff; color: var(--navy); border-radius: var(--radius); font-weight: 700; cursor: pointer; }
-.copy:hover { background: var(--cream); }
+.copy:hover { background: var(--cream-2); }
 .rules { margin: 0; padding-left: 20px; }
 .rules li { margin-top: 8px; }
 .tagline { margin-top: 36px; text-align: center; font-weight: 600; color: var(--navy); }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* light surfaces get a navy focus ring; inside navy blocks it flips to cyan */
+.band :focus-visible, .payout :focus-visible { outline-color: var(--cyan); }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { peso } from './format'
-import { loanLimit, monthlyLoan, regularLoan, type CoopSummary, type Member } from './rules'
+import { loanLimit, MONTHLY_LOANS, monthlyLoan, monthlyLoanError, regularLoan, type CoopSummary, type Member, type MonthlyLoanType } from './rules'
 
 export function Coop({ coop, members }: { coop: CoopSummary; members: Member[] }) {
   const active = members.filter((m) => m.heads > 0).length
@@ -34,11 +34,11 @@ export function Coop({ coop, members }: { coop: CoopSummary; members: Member[] }
 }
 
 const TYPES = {
-  regular: { label: 'Regular loan (flat rate)', rate: 0 },
-  flex: { label: 'Flex loan (8% a month)', rate: 0.08 },
-  grocery: { label: 'Grocery – Tindamarts (5% a month)', rate: 0.05 },
-  appliance: { label: 'Appliances / devices (5% a month)', rate: 0.05 },
-  events: { label: 'HILAS Special Events – board only (8%)', rate: 0.08 },
+  regular: 'Regular loan (flat rate)',
+  flex: 'Flex loan (8% a month)',
+  grocery: 'Grocery – Tindamarts (5%, from ₱2,000)',
+  appliance: 'Appliances / devices (5%, 2+ months)',
+  events: 'HILAS Special Events – board only (8%)',
 } as const
 type LoanType = keyof typeof TYPES
 
@@ -57,7 +57,7 @@ export function Loans({ member }: { member: Member | null }) {
       <div className="field">
         <label htmlFor="type">Loan type</label>
         <select id="type" value={type} onChange={(e) => setType(e.target.value as LoanType)}>
-          {Object.entries(TYPES).map(([k, t]) => <option key={k} value={k}>{t.label}</option>)}
+          {Object.entries(TYPES).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
       </div>
       <div className="field">
@@ -71,7 +71,7 @@ export function Loans({ member }: { member: Member | null }) {
         </select>
       </div>
       {member && capital > loanLimit(member.heads) && <p className="alert" role="status">That is above your {peso(loanLimit(member.heads))} limit. Board approval is needed to go higher.</p>}
-      {type === 'regular' ? <RegularQuote capital={capital} months={term as 2 | 3 | 6} /> : <MonthlyQuote capital={capital} rate={TYPES[type].rate} months={term} flex={type === 'flex'} />}
+      {type === 'regular' ? <RegularQuote capital={capital} months={term as 2 | 3 | 6} /> : <MonthlyQuote type={type} capital={capital} months={term} />}
     </section>
   )
 }
@@ -83,23 +83,21 @@ function RegularQuote({ capital, months }: { capital: number; months: 2 | 3 | 6 
     <div className="quote">
       <p className="note">Pay each month</p>
       <div className="big">{peso(q.installment)}</div>
-      <table className="panel" style={{ marginTop: 14 }}>
-        <thead><tr><th>Month</th><th>Capital</th><th>Interest</th><th>Payable</th></tr></thead>
-        <tbody>
-          {Array.from({ length: months }, (_, i) => (
-            <tr key={i}><td>{i + 1}</td><td>{peso(capital / months)}</td><td>{peso(q.interest / months)}</td><td>{peso(q.installment)}</td></tr>
-          ))}
-        </tbody>
-        <tfoot><tr><td>Total</td><td>{peso(capital)}</td><td>{peso(q.interest)}</td><td>{peso(q.total)}</td></tr></tfoot>
-      </table>
+      <ul className="rows panel" style={{ marginTop: 14 }}>
+        <li><span>Each month, for {months} months</span><b>{peso(capital / months)} + {peso(q.interest / months)} interest</b></li>
+        <li><span>Total interest</span><b>{peso(q.interest)}</b></li>
+        <li><span>Total to repay</span><b>{peso(q.total)}</b></li>
+      </ul>
       <p className="note">{(q.rate * 100).toFixed(1).replace('.0', '')}% a month, flat on the original amount. A late payment adds a 1% penalty.</p>
     </div>
   )
 }
 
-function MonthlyQuote({ capital, rate, months, flex }: { capital: number; rate: number; months: number; flex: boolean }) {
-  if (capital <= 0) return <p className="note">Enter an amount.</p>
-  const q = monthlyLoan(capital, rate, months)
+function MonthlyQuote({ type, capital, months }: { type: MonthlyLoanType; capital: number; months: number }) {
+  const err = monthlyLoanError(type, capital, months)
+  if (err) return <p className="alert" role="status">{err}</p>
+  const flex = type === 'flex'
+  const q = monthlyLoan(capital, MONTHLY_LOANS[type].rate, months)
   return (
     <div className="quote">
       <ul className="rows panel">

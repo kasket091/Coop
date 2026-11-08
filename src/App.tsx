@@ -43,7 +43,10 @@ export default function App() {
         <span className="year" aria-label="2026">2026</span>
       </header>
       <main>
-        {error ? (
+        {/* Pay & Rules and the calculator need no sheet data, so they work offline too */}
+        {tab === 'pay' ? <PayRules />
+          : tab === 'loans' ? <Loans member={me} />
+          : error ? (
           <div className="error" role="alert">
             <h1>Couldn't load the coop sheet</h1>
             <p>Check your connection, then try again.</p>
@@ -54,9 +57,7 @@ export default function App() {
             {[60, 90, 40, 75].map((w, i) => <div key={i} className="skeleton" style={{ width: `${w}%` }} />)}
           </div>
         ) : tab === 'coop' ? <Coop coop={coop} members={members} />
-          : tab === 'loans' ? <Loans member={me} />
-          : tab === 'pay' ? <PayRules />
-          : me ? <MySavings m={me} coop={coop} onChange={() => choose(null)} />
+          : me ?<MySavings m={me} coop={coop} onChange={() => choose(null)} />
           : <Picker members={members} onPick={choose} />}
       </main>
       <nav className="tabs" aria-label="Sections">
@@ -128,7 +129,7 @@ function MySavings({ m, coop, onChange }: { m: Member; coop: CoopSummary; onChan
       <div className="legend" aria-hidden="true">
         <span><i style={{ background: 'var(--navy)' }} />Paid</span>
         <span><i style={{ background: 'var(--red)' }} />Missed</span>
-        <span><i style={{ border: '2px dashed var(--teal)' }} />Next due (1st–7th)</span>
+        <span><i style={{ border: '2px dashed var(--navy)' }} />Next due (1st–7th)</span>
       </div>
 
       {s.missed.length > 0 && (

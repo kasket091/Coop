@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   closedMonths, coopSummary, loanLimit, memberSummary, minAnnualLoan, missedMonths,
-  missedOwed, monthlyDue, monthlyLoan, regularLoan, type Member,
+  missedOwed, monthlyDue, monthlyLoan, monthlyLoanError, regularLoan, type Member,
 } from './rules'
 
 const zeros = () => Array(12).fill(0)
@@ -80,6 +80,17 @@ describe('loans', () => {
     expect(regularLoan(9000, 3)).toMatchObject({ error: expect.stringContaining('Flex') })
     expect(regularLoan(15000, 6)).toHaveProperty('error')
     expect(regularLoan(60000, 2)).toHaveProperty('error')
+  })
+  it('grocery loans start at ₱2,000 (handbook p.7)', () => {
+    expect(monthlyLoanError('grocery', 1500, 2)).toMatch(/2,000/)
+    expect(monthlyLoanError('grocery', 2000, 1)).toBeNull()
+  })
+  it('appliance loans run at least 2 months (handbook p.7)', () => {
+    expect(monthlyLoanError('appliance', 10000, 1)).toMatch(/2 months/)
+    expect(monthlyLoanError('appliance', 10000, 2)).toBeNull()
+  })
+  it('any monthly-rate loan needs an amount', () => {
+    expect(monthlyLoanError('flex', 0, 1)).toMatch(/amount/i)
   })
   it('monthly-rate loans: interest paid monthly vs capitalized (handbook p.8)', () => {
     expect(monthlyLoan(5000, 0.08, 3)).toEqual({ paidMonthly: 1200, unpaid: 1298.56 })
