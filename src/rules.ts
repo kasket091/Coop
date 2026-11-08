@@ -61,7 +61,8 @@ export type CoopSummary = {
 }
 
 export function coopSummary(members: Member[]): CoopSummary {
-  const totalHeads = sum(members.map((m) => m.heads))
+  // terminated members' heads leave the dividend share; their savings and interest still count in the totals
+  const totalHeads = sum(members.filter((m) => !m.terminated).map((m) => m.heads))
   const totalSavings = cents(sum(members.map((m) => sum(m.paid))))
   const totalInterest = cents(sum(members.map((m) => sum(m.interest))))
   let top: CoopSummary['top'] = null

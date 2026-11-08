@@ -18,7 +18,7 @@ export function publicSummary(members: (Member & { uid: string })[]): { summary:
   return {
     summary: {
       totalHeads: c.totalHeads, totalSavings: c.totalSavings, totalInterest: c.totalInterest, dividendPerHead: c.dividendPerHead,
-      rebate, members: members.filter((m) => m.heads > 0).length, updatedAt: Date.now(),
+      rebate, members: members.filter((m) => m.heads > 0 && !m.terminated).length, updatedAt: Date.now(),
     },
     rebates: Object.fromEntries(members.map((m) => [m.uid, m.uid === topUid ? rebate : 0])),
   }

@@ -83,6 +83,12 @@ describe('dividends', () => {
     // A's interest still counts in the pool
     expect(c.totalInterest).toBeCloseTo(50158.83, 2)
   })
+  it("a terminated member's heads leave the dividend; their interest stays in the pool", () => {
+    const c = coopSummary([{ ...member('A', 12, 1000), terminated: { at: 1, reason: 'x' } }, member('B', 2, 2000), member('C', 2)])
+    expect(c.totalHeads).toBe(4)
+    // pool 3000 − 3% of B's 2000 (60) = 2940, over the 4 active heads
+    expect(c.dividendPerHead).toBeCloseTo(2940 / 4, 2)
+  })
   it('no interest means no top borrower', () => {
     const c = coopSummary([member('A', 2)])
     expect(c.top).toBeNull()

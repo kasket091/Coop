@@ -35,7 +35,7 @@ export function Dashboard({ members, txns, year }: { members: StoredMember[]; tx
       <p className="plan">As of {new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
 
       <div className="kpis">
-        <div><span>Members</span><b>{savers.length}</b></div>
+        <div><span>Members</span><b>{savers.filter((m) => !m.terminated).length}</b></div>
         <div><span>Heads</span><b>{c.totalHeads}</b></div>
         <div><span>Total savings</span><b>{peso(c.totalSavings)}</b></div>
         <div><span>Total interest</span><b>{peso(c.totalInterest)}</b></div>
@@ -64,7 +64,7 @@ export function Dashboard({ members, txns, year }: { members: StoredMember[]; tx
             {savers.map((m) => (
               <tr key={m.uid}>
                 <th scope="row" className="sticky">{m.name}</th>
-                <td>{m.heads}</td><td>{n(m.heads * 500)}</td><td>{c.totalHeads ? ((m.heads / c.totalHeads) * 100).toFixed(2) : ''}</td>
+                <td>{m.heads}</td><td>{n(m.heads * 500)}</td><td>{m.terminated ? 'terminated' : c.totalHeads ? ((m.heads / c.totalHeads) * 100).toFixed(2) : ''}</td>
                 {MONTHS.map((_, i) => <td key={i} className={cls(m.uid, i)}>{savingsCell(m, i)}</td>)}
                 <td className="tot">{n(sum(m.paid))}</td>
               </tr>

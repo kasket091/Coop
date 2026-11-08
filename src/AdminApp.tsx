@@ -70,7 +70,7 @@ function Members({ members, requests, txns, year }: { members: StoredMember[]; r
   return (
     <section className="picker">
       <div className="who"><h1>Members</h1><button className="btn" onClick={() => setAdding(true)}>Add member</button></div>
-      <p className="plan">{members.filter((m) => m.heads > 0).length} members · {sum(members.map((m) => m.heads))} heads</p>
+      <p className="plan">{members.filter((m) => m.heads > 0 && !m.terminated).length} active members · {sum(members.filter((m) => !m.terminated).map((m) => m.heads))} heads{members.some((m) => m.terminated) ? ` · ${members.filter((m) => m.terminated).length} terminated` : ''}</p>
       {notice && <p className="success" role="status">{notice}</p>}
       <div className="field"><label htmlFor="mq">Search</label>
         <input id="mq" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" /></div>

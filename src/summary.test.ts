@@ -29,3 +29,9 @@ it('import resumes: rows already in Firebase are skipped by name', () => {
   const sheet = [m('', 'Ana Cruz', 12), m('', 'Ben  Uy', 2), m('', 'Vincent Batutay', 0)]
   expect(importRows(sheet, ['ana cruz', 'vincent batutay']).map((r) => r.name)).toEqual(['Ben  Uy'])
 })
+
+it('terminated members are not counted as members or heads', () => {
+  const { summary } = publicSummary([{ ...m('a', 'Ana Cruz', 12, 1000), terminated: { at: 1, reason: 'x' } }, m('b', 'Ben Uy', 2, 100)])
+  expect(summary.members).toBe(1)
+  expect(summary.totalHeads).toBe(2)
+})
