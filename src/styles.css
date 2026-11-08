@@ -202,3 +202,12 @@ main.no-tabs { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
 .ledger thead th { border-top: 0; color: var(--muted); font-weight: 600; }
 .ledger input { width: 100%; min-height: 44px; padding: 0 10px; border: 1.5px solid var(--line); border-radius: 8px; background: #fff; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* admin's direct approval: small, pushed to the far right of the request's actions */
+.btn-mini {
+  margin-left: auto; align-self: center; min-height: 44px; padding: 0 10px;
+  border: 1.5px solid var(--navy); border-radius: var(--radius); background: transparent;
+  color: var(--navy); font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.btn-mini:hover { background: var(--cream-2); }
+.btn-mini:disabled { opacity: 0.5; cursor: not-allowed; }

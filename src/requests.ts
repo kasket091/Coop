@@ -15,6 +15,8 @@ export type LoanRequest = {
   status: 'pending' | 'approved' | 'declined' | 'withdrawn'
   createdAt: number
   decidedAt?: number
+  /** set when the admin approved without waiting for both co-makers */
+  directApproval?: boolean
 }
 
 export type RequestInput = {

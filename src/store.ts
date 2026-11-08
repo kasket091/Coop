@@ -115,12 +115,12 @@ export function decideAsComaker(r: LoanRequest, uid: string, status: 'approved' 
 export const withdrawRequest = (id: string) => updateDoc(doc(db, 'loanRequests', id), { status: 'withdrawn' })
 
 /** Only a still-pending request can be decided, so a stale screen can't approve a withdrawn or declined loan. */
-export const adminDecide = (id: string, status: 'approved' | 'declined') =>
+export const adminDecide = (id: string, status: 'approved' | 'declined', direct = false) =>
   runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
     const snap = await tx.get(ref)
     if (snap.data()?.status !== 'pending') throw new Error('This request was already withdrawn or decided.')
-    tx.update(ref, { status, decidedAt: Date.now() })
+    tx.update(ref, { status, decidedAt: Date.now(), ...(direct ? { directApproval: true } : {}) })
   })
 
 // ---------- admin ----------

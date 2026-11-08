@@ -196,9 +196,9 @@ function Requests({ requests }: { requests: LoanRequest[] }) {
   const [error, setError] = useState<string | null>(null)
   const pending = requests.filter((r) => r.status === 'pending')
   const closed = requests.filter((r) => r.status !== 'pending')
-  const decide = async (id: string, s: 'approved' | 'declined') => {
+  const decide = async (id: string, s: 'approved' | 'declined', direct = false) => {
     setBusy(id); setError(null)
-    try { await adminDecide(id, s) } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
+    try { await adminDecide(id, s, direct) } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
   }
   return (
     <section>
@@ -213,13 +213,21 @@ function Requests({ requests }: { requests: LoanRequest[] }) {
             <div className="actions">
               <button className="btn" disabled={!canAdminApprove(r) || busy === r.id} onClick={() => decide(r.id, 'approved')}>Approve loan</button>
               <button className="copy" disabled={busy === r.id} onClick={() => decide(r.id, 'declined')}>Decline</button>
+              <button className="btn-mini" disabled={busy === r.id}
+                onClick={() => window.confirm(`Approve ${r.borrowerName}'s ${peso(r.amount)} loan now, without waiting for the co-makers?`) && decide(r.id, 'approved', true)}>
+                Walay Kurat Approve Dritso
+              </button>
             </div>
           </RequestCard>
         ))}
       </ul>
       {closed.length > 0 && (
         <div className="section"><h2>Decided</h2>
-          <ul className="requests">{closed.map((r) => <RequestCard key={r.id} r={r}><p className="note">Borrower: {r.borrowerName}</p></RequestCard>)}</ul></div>
+          <ul className="requests">{closed.map((r) => (
+            <RequestCard key={r.id} r={r}>
+              <p className="note">Borrower: {r.borrowerName}{r.directApproval ? ' · approved directly, without both co-makers' : ''}</p>
+            </RequestCard>
+          ))}</ul></div>
       )}
     </section>
   )
