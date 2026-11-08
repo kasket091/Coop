@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client'
-// Self-hosted so money figures keep their face offline or on slow data (latin subset only).
+// Self-hosted so money figures keep their face on slow data, with no third-party font host (latin subset only).
 import '@fontsource/anton/latin-400.css'
 import '@fontsource/montserrat/latin-500.css'
 import '@fontsource/montserrat/latin-600.css'

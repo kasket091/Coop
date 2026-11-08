@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-08T00:00:00Z",
+  "title": "Design System: Hilas Coop",
+  "extensions": {
+    "colorMeta": {
+      "handbook-navy": { "role": "primary", "displayName": "Handbook Navy", "canonical": "#1c1b57", "tonalRamp": ["#1b1b32", "#292857", "#343380", "#3e3cb9", "#6b6ac8", "#9d9cd3", "#cdcde4", "#efeff5"] },
+      "navy-pressed": { "role": "primary", "displayName": "Navy Pressed", "canonical": "#2a2973", "tonalRamp": ["#1c1c31", "#2b2b55", "#37377c", "#4342b3", "#706ec4", "#9f9fd1", "#cfcee3", "#f0eff5"] },
+      "year-cyan": { "role": "secondary", "displayName": "Year Cyan", "canonical": "#09c3e4", "tonalRamp": ["#12353b", "#175d69", "#16889d", "#0cc8e9", "#46d3ec", "#87dae8", "#c4e7ed", "#edf6f8"] },
+      "fine-print-red": { "role": "tertiary", "displayName": "Fine-Print Red", "canonical": "#a42a24", "tonalRamp": ["#341918", "#5c2623", "#882f2a", "#c7352e", "#d26560", "#d99996", "#e7cccb", "#f6efee"] },
+      "red-wash": { "role": "tertiary", "displayName": "Red Wash", "canonical": "#f8ebea", "tonalRamp": ["#311d1b", "#562d29", "#7e3a35", "#b6473f", "#c6736c", "#d2a19d", "#e4cfce", "#f5f0ef"] },
+      "red-deep-text": { "role": "tertiary", "displayName": "Red Deep Text", "canonical": "#6e1c18", "tonalRamp": ["#341918", "#5c2623", "#882f2a", "#c7352e", "#d3655f", "#d99996", "#e7cccb", "#f6efee"] },
+      "handbook-cream": { "role": "neutral", "displayName": "Handbook Cream", "canonical": "#f2f0e2", "tonalRamp": ["#2f2d1e", "#514d2f", "#756e3d", "#a89d4d", "#bbb377", "#ccc7a4", "#e1dfd0", "#f4f4f0"] },
+      "cream-pressed": { "role": "neutral", "displayName": "Cream Pressed", "canonical": "#e8e5d2", "tonalRamp": ["#2d2b1f", "#4e4a31", "#716a42", "#a19754", "#b6ae7c", "#c9c4a7", "#e0ded2", "#f4f4f0"] },
+      "page-white": { "role": "neutral", "displayName": "Page White", "canonical": "#ffffff", "tonalRamp": ["#262626", "#404040", "#595959", "#7a7a7a", "#999999", "#b8b8b8", "#d9d9d9", "#f2f2f2"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#1a1936", "tonalRamp": ["#1f1e2e", "#302f50", "#403e74", "#524fa6", "#7a78ba", "#a6a4cb", "#d1d1e1", "#f0f0f4"] },
+      "muted-ink": { "role": "neutral", "displayName": "Muted Ink", "canonical": "#55536e", "tonalRamp": ["#242329", "#3a3a46", "#514f63", "#6c6a8b", "#8e8ca6", "#b1b0bf", "#d6d6dc", "#f2f1f3"] },
+      "ledger-line": { "role": "neutral", "displayName": "Ledger Line", "canonical": "#d4d0b8", "tonalRamp": ["#2c2a21", "#4b4835", "#6b6647", "#988f5d", "#afa983", "#c5c1ab", "#deddd3", "#f4f3f1"] },
+      "navy-subtext": { "role": "neutral", "displayName": "Navy Subtext", "canonical": "#d6d5ee", "tonalRamp": ["#1e1d30", "#2e2d53", "#3d3a78", "#4c48ad", "#7673bf", "#a3a1ce", "#d0cfe2", "#f0f0f5"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The member's total saved (56px); the loan installment uses the same face at 40px." },
+      "display-secondary": { "displayName": "Display Secondary", "purpose": "Cyan payout and dividend figures on the navy card." },
+      "year-mark": { "displayName": "Year Mark", "purpose": "The tracked cyan 2026 in the band only." },
+      "headline": { "displayName": "Headline", "purpose": "Page titles; the name picker uses 24px." },
+      "title": { "displayName": "Title", "purpose": "Section headings above panels and inside the payout card." },
+      "body": { "displayName": "Body", "purpose": "All running text and row content, tabular numerals on." },
+      "label": { "displayName": "Label", "purpose": "Field labels, notes and secondary row text; tab labels at 13px." }
+    },
+    "shadows": [
+      { "name": "input-focus-glow", "value": "0 0 0 3px rgb(9 195 228 / 0.35)", "purpose": "Focus state on inputs and selects only. Not elevation; the system is otherwise shadowless." }
+    ],
+    "focus": [
+      { "name": "focus-ring", "value": "outline: 3px solid var(--navy); outline-offset: 2px; border-radius: 4px", "purpose": "Every focusable element on light surfaces." },
+      { "name": "focus-ring-on-navy", "value": "outline-color: var(--cyan)", "purpose": "Focus inside the band and the payout card." }
+    ],
+    "motion": [
+      { "name": "shimmer", "value": "1.2s ease-out infinite", "purpose": "Skeleton loader sweep from cream to cream-pressed. Removed under prefers-reduced-motion." }
+    ],
+    "breakpoints": [
+      { "name": "strip-single-row", "value": "560px", "purpose": "Year strip goes from 6 columns (two rows) to 12 columns." },
+      { "name": "content-column", "value": "640px", "purpose": "Max content width; band and tab bar gutters align to it." }
+    ],
+    "knownLimits": [
+      "No offline: the app needs a network to open (no service worker in v1; offline mode is a spec non-goal). Fonts are self-hosted woff2 via @fontsource.",
+      "Raster provenance: public/logo.png, icon-192.png, icon-512.png and apple-touch-icon.png were cropped from the cover of HILAS-COOP-HANDBOOK-2026-FINAL.pdf (page 1, the coop's own mark), not generated."
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Solid navy action button, 48px tall.",
+      "html": "<button class=\"ds-btn\">Try again</button>",
+      "css": ".ds-btn { min-height: 48px; padding: 0 20px; border-radius: 10px; border: 0; background: #1c1b57; color: #fff; font: 700 16px/1.5 'Montserrat', system-ui, sans-serif; cursor: pointer; } .ds-btn:hover { background: #2a2973; } .ds-btn:focus-visible { outline: 3px solid #1c1b57; outline-offset: 2px; }"
+    },
+    {
+      "name": "Copy Button",
+      "kind": "button",
+      "refersTo": "button-copy",
+      "description": "Navy outline button that copies a payment number.",
+      "html": "<button class=\"ds-copy\">Copy</button>",
+      "css": ".ds-copy { min-height: 44px; min-width: 76px; border: 1.5px solid #1c1b57; background: #fff; color: #1c1b57; border-radius: 10px; font: 700 16px/1.5 'Montserrat', system-ui, sans-serif; cursor: pointer; } .ds-copy:hover { background: #e8e5d2; } .ds-copy:focus-visible { outline: 3px solid #1c1b57; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Labelled input with navy border and cyan glow on focus.",
+      "html": "<div class=\"ds-field\"><label for=\"ds-q\">Search your name</label><input id=\"ds-q\" type=\"search\" /></div>",
+      "css": ".ds-field { display: grid; gap: 6px; font-family: 'Montserrat', system-ui, sans-serif; } .ds-field label { font-size: 14px; font-weight: 600; color: #1c1b57; } .ds-field input { min-height: 48px; padding: 0 14px; border: 1.5px solid #d4d0b8; border-radius: 10px; background: #fff; font: 500 16px 'Montserrat', system-ui, sans-serif; color: #1a1936; } .ds-field input:focus { border-color: #1c1b57; outline: none; box-shadow: 0 0 0 3px rgb(9 195 228 / 0.35); }"
+    },
+    {
+      "name": "Bottom Tab Bar",
+      "kind": "nav",
+      "refersTo": "tab-bar",
+      "description": "Fixed four-tab bar; active tab is navy with a cyan top indicator.",
+      "html": "<nav class=\"ds-tabs\"><button aria-current=\"page\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"6\" width=\"18\" height=\"13\" rx=\"2\"/><path d=\"M3 10h18M16 14.5h2\"/></svg>My Savings</button><button><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"9\" cy=\"8\" r=\"3\"/><circle cx=\"17\" cy=\"9\" r=\"2.5\"/><path d=\"M3 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5M15.5 14c2.8 0 5.5 1.6 5.5 5\"/></svg>Coop</button><button><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M8 7h8M8 11h2M12 11h2M8 15h2M12 15h2M8 18h2M12 18h4\"/></svg>Loans</button><button><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3h12v18l-3-2-3 2-3-2-3 2z\"/><path d=\"M9 8h6M9 12h6\"/></svg>Pay &amp; Rules</button></nav>",
+      "css": ".ds-tabs { display: grid; grid-template-columns: repeat(4, 1fr); height: 64px; background: #fff; border-top: 1px solid #d4d0b8; font-family: 'Montserrat', system-ui, sans-serif; } .ds-tabs button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: 0; background: none; color: #55536e; font-size: 13px; font-weight: 600; position: relative; cursor: pointer; } .ds-tabs button svg { width: 24px; height: 24px; } .ds-tabs button[aria-current='page'] { color: #1c1b57; } .ds-tabs button[aria-current='page']::before { content: ''; position: absolute; top: 0; left: 28%; right: 28%; height: 3px; background: #09c3e4; border-radius: 0 0 3px 3px; } .ds-tabs button:focus-visible { outline: 3px solid #1c1b57; outline-offset: 2px; border-radius: 4px; }"
+    },
+    {
+      "name": "Handbook Band",
+      "kind": "nav",
+      "refersTo": "band",
+      "description": "Sticky navy header with the logo, HILAS COOP and the tracked cyan year mark.",
+      "html": "<header class=\"ds-band\"><span class=\"ds-logo\"></span><strong>HILAS COOP</strong><span class=\"ds-year\">2026</span></header>",
+      "css": ".ds-band { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #1c1b57; color: #fff; font: 500 16px 'Montserrat', system-ui, sans-serif; } .ds-band strong { font-weight: 700; letter-spacing: 0.02em; } .ds-logo { width: 36px; height: 36px; border-radius: 6px; background: #f2f0e2; } .ds-year { margin-left: auto; margin-right: -0.45em; font-family: 'Anton', 'Arial Narrow', sans-serif; color: #09c3e4; font-size: 20px; letter-spacing: 0.45em; }"
+    },
+    {
+      "name": "Fact Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Cream panel of ruled rows: muted label left, navy value right.",
+      "html": "<ul class=\"ds-rows\"><li><span>Loan limit</span><b>₱96,000.00</b></li><li><span>Required minimum loan</span><b>₱30,000.00</b></li></ul>",
+      "css": ".ds-rows { list-style: none; margin: 0; padding: 0; background: #f2f0e2; border: 1px solid #d4d0b8; border-radius: 10px; font: 500 16px/1.5 'Montserrat', system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-rows li { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 12px 16px; border-top: 1px solid #d4d0b8; } .ds-rows li:first-child { border-top: 0; } .ds-rows span { color: #55536e; } .ds-rows b { font-weight: 700; color: #1c1b57; text-align: right; }"
+    },
+    {
+      "name": "Payout Card",
+      "kind": "card",
+      "refersTo": "payout-card",
+      "description": "Navy card with the projected payout in cyan Anton.",
+      "html": "<div class=\"ds-payout\"><h2>December payout (projected)</h2><div class=\"ds-big\">₱75,412.50</div><p>Assumes all 12 months are paid. Released Dec 16–19.</p></div>",
+      "css": ".ds-payout { padding: 18px 16px; border-radius: 10px; background: #1c1b57; color: #fff; font-family: 'Montserrat', system-ui, sans-serif; } .ds-payout h2 { margin: 0; font-size: 15px; font-weight: 700; color: #fff; } .ds-big { font-family: 'Anton', 'Arial Narrow', sans-serif; font-size: 44px; line-height: 1.05; color: #09c3e4; margin-top: 6px; } .ds-payout p { margin: 4px 0 0; color: #d6d5ee; font-size: 14px; }"
+    },
+    {
+      "name": "Missed-Month Alert",
+      "kind": "card",
+      "refersTo": "alert",
+      "description": "Red-wash alert for missed months, over-limit amounts and loan errors.",
+      "html": "<div class=\"ds-alert\"><h2>1 missed month: Mar</h2><p>Missed savings become a loan at 10% a month. Paying today costs about <b>₱6,600.00</b>.</p></div>",
+      "css": ".ds-alert { padding: 14px 16px; border-radius: 10px; background: #f8ebea; color: #a42a24; font-family: 'Montserrat', system-ui, sans-serif; } .ds-alert h2 { margin: 0; font-size: 16px; font-weight: 700; color: #a42a24; } .ds-alert p { margin: 4px 0 0; color: #6e1c18; }"
+    },
+    {
+      "name": "Year Strip",
+      "kind": "custom",
+      "refersTo": "year-cell-paid",
+      "description": "The signature: twelve month cells, paid, missed, next due or still to come.",
+      "html": "<ol class=\"ds-strip\"><li class=\"ds-cell paid\">Jan<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12.5l4.5 4.5L19 7.5\"/></svg></li><li class=\"ds-cell paid\">Feb<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12.5l4.5 4.5L19 7.5\"/></svg></li><li class=\"ds-cell missed\">Mar<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 7v6M12 17h0\"/></svg></li><li class=\"ds-cell due\">Apr</li><li class=\"ds-cell\">May</li><li class=\"ds-cell\">Jun</li></ol>",
+      "css": ".ds-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; list-style: none; margin: 0; padding: 0; font-family: 'Montserrat', system-ui, sans-serif; } .ds-cell { display: grid; place-items: center; align-content: center; gap: 2px; height: 64px; border-radius: 8px; border: 1.5px solid #d4d0b8; background: #fff; font-size: 14px; font-weight: 700; color: #55536e; } .ds-cell svg { width: 16px; height: 16px; } .ds-cell.paid { background: #1c1b57; border-color: #1c1b57; color: #fff; } .ds-cell.missed { background: #a42a24; border-color: #a42a24; color: #fff; } .ds-cell.due { border: 2px dashed #1c1b57; color: #1c1b57; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Handbook Page",
+    "overview": "The app wears the coop's own 2026 handbook as its shell: a navy page band carrying the circle-of-people logo, the words HILAS COOP and a tracked cyan \"2 0 2 6\", over a plain white page with cream ledger panels. Nothing is borrowed from fintech conventions. The brand is pinned by the handbook (PRODUCT.md Brand Commitments) and the build follows it closely; there is no second palette and no decorative layer.\n\nDensity is low and type is large, because the audience reads on cheap Android phones and includes older relatives. Every content block sits on one 640px column with 16px gutters. Numbers carry the hierarchy: money figures and the year mark are set in Anton, and everything else is Montserrat in a single 16px/1.5 body voice with tabular numerals throughout. The signature is the year strip: twelve cells, one per month, each paid (navy), missed (red), next due (dashed navy) or still to come (white).",
+    "keyCharacteristics": [
+      "Navy band on top, white tab bar fixed at the bottom, white ground between, cream panels for grouped facts.",
+      "Anton only for money totals and the year mark; Montserrat for all UI.",
+      "Navy does all the interactive work: links, buttons, focus, the active tab label, the next-due cell.",
+      "Red appears only for missed months, warnings and fine print.",
+      "Cyan appears only on navy (year mark, payout figure, focus ring inside navy blocks) and as the active-tab indicator and selection highlight.",
+      "Flat: depth is tonal and drawn with lines, never with shadows."
+    ],
+    "rules": [
+      { "name": "The Three Inks Rule", "body": "Navy, cyan and red come from the handbook and nothing else is added. Navy is for structure and action, red is for money a member owes, cyan is for the year mark and for highlights on navy.", "section": "colors" },
+      { "name": "The Red Means Owed Rule", "body": "Red marks only missed contributions, over-limit warnings, loan errors and fine print. A red button or decoration breaks the meaning.", "section": "colors" },
+      { "name": "The Anton Is Money Rule", "body": "Anton sets peso figures and the year mark only. Headings, labels and buttons are Montserrat.", "section": "typography" },
+      { "name": "The Ledger Not Lift Rule", "body": "Separate things with a cream panel or a 1px line. Don't lift them with shadows.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep the navy band, logo, HILAS COOP and the tracked cyan \"2026\" at the top of every screen.",
+      "Do set every peso total a member came to see in Anton; keep all other text in Montserrat with tabular numerals.",
+      "Do group related facts in a cream panel with 1px Ledger Line rules: muted label left, navy value right.",
+      "Do keep touch targets at least 44px (48px for buttons and inputs, 56px for picker rows).",
+      "Do use the 3px navy focus outline on light surfaces and switch it to cyan inside navy blocks.",
+      "Do show month status with fill and an icon together, never color alone, and give each cell a spoken label."
+    ],
+    "donts": [
+      "Don't add teal or any hue outside navy, cyan and red; the handbook pins the palette.",
+      "Don't use red for anything except money owed, warnings and fine print.",
+      "Don't use cyan as text on white; it belongs on navy or as a thin indicator.",
+      "Don't add shadows to panels, cards or buttons; separate with tone and lines.",
+      "Don't set headings, labels or buttons in Anton.",
+      "Don't replace the year strip with a balance card plus a transaction list."
+    ]
+  }
+}
