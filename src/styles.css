@@ -229,3 +229,11 @@ main.no-tabs { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
 
 .loan-actions { display: grid; gap: 6px; justify-items: end; flex-shrink: 0; }
 .loan-actions .btn-mini { margin-left: 0; width: 100%; }
+
+.unpaid-list li { flex-wrap: wrap; }
+.custom-pay { flex-basis: 100%; display: grid; gap: 8px; margin-top: 6px; padding: 10px 12px; border-radius: var(--radius); background: #fff; border: 1px solid var(--line); }
+.custom-pay label { font-size: 14px; font-weight: 600; color: var(--navy); }
+.custom-pay input { min-height: 44px; padding: 0 12px; border: 1.5px solid var(--line); border-radius: var(--radius); }
+.custom-pay .note { margin-top: 0; }
+.pay-buttons { display: flex; gap: 8px; }
+.pay-buttons > * { flex: 1; }

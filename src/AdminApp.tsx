@@ -3,12 +3,12 @@ import { startingPassword } from './accounts'
 import { MONTHS, peso } from './format'
 import { IconCoop, IconLoans, IconSavings } from './icons'
 import { RequestCard } from './member-tabs'
-import { balanceOf, canAdminApprove, monthInterest, unpaidLoans, type LoanRequest } from './requests'
+import { balanceOf, canAdminApprove, customPayment, monthInterest, unpaidLoans, type LoanRequest } from './requests'
 import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, adminDecide, carryOverLoan, deleteMember, importFromSheet, markLoanPaid, payLoanInterest, recomputeSummary, renameMember, resetLogin, savePayments,
+  addMember, adminDecide, carryOverLoan, deleteMember, importFromSheet, loanCustomPayment, markLoanPaid, payLoanInterest, recomputeSummary, renameMember, resetLogin, savePayments,
   saveSheetLoanBalance,
   signOutUser, startCycle, watchAllMembers, watchAllRequests, watchSummary, type StoredMember, type Summary,
 } from './store'
@@ -198,11 +198,13 @@ function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanReq
   const u = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0)
   const [balance, setBalance] = useState(String(m.sheetLoanBalance ?? 0))
   const [editing, setEditing] = useState(false)
+  const [paying, setPaying] = useState<string | null>(null)
+  const [payAmount, setPayAmount] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key); setError(null)
-    try { await fn(); setEditing(false) } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
+    try { await fn(); setEditing(false); setPaying(null); setPayAmount('') } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
   }
   return (
     <div className={`unpaid ${u.total > 0 ? 'owing' : ''}`}>
@@ -235,8 +237,15 @@ function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanReq
                   onClick={() => window.confirm(`Carry over: add ${peso(monthInterest(r))} interest to the balance, making it ${peso(balanceOf(r) + monthInterest(r))}?`) && run(r.id, () => carryOverLoan(r.id, year))}>
                   Carryover
                 </button>
+                <button className="btn-mini" disabled={busy === r.id} aria-expanded={paying === r.id}
+                  onClick={() => { setPaying(paying === r.id ? null : r.id); setPayAmount('') }}>
+                  Advance/Custom Payment
+                </button>
               </>)}
             </span>
+            {paying === r.id && <CustomPay r={r} amount={payAmount} onAmount={setPayAmount} busy={busy === r.id}
+              onCancel={() => setPaying(null)}
+              onRecord={(n) => run(r.id, () => loanCustomPayment(r.id, year, n))} />}
           </li>
         ))}
         <li>
@@ -256,6 +265,31 @@ function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanReq
         </li>
       </ul>
       {error && <p className="alert" role="alert">{error}</p>}
+    </div>
+  )
+}
+
+/** Inline form: how a custom amount splits into interest and balance, before recording it. */
+function CustomPay({ r, amount, onAmount, busy, onCancel, onRecord }: {
+  r: LoanRequest; amount: string; onAmount: (s: string) => void; busy: boolean; onCancel: () => void; onRecord: (n: number) => void
+}) {
+  const n = Number(amount.replace(/[^\d.]/g, '')) || 0
+  const p = n > 0 ? customPayment(r, n) : null
+  return (
+    <div className="custom-pay">
+      <label htmlFor={`cp-${r.id}`}>Amount paid this month (₱)</label>
+      <input id={`cp-${r.id}`} inputMode="decimal" value={amount} onChange={(e) => onAmount(e.target.value)} placeholder="e.g. 500" autoFocus />
+      {p && ('error' in p
+        ? <p className="alert" role="status">{p.error}</p>
+        : <p className="note" role="status">
+            {peso(p.interestPart)} interest{p.collected > p.interestPart ? ` + ${peso(p.collected - p.interestPart)} carried-over interest` : ''}
+            {' · '}{p.paidOff ? 'loan fully paid' : `new balance ${peso(p.balance)}`}
+            {p.interestPart < monthInterest(r) ? ` (${peso(monthInterest(r) - p.interestPart)} unpaid interest carries over)` : ''}
+          </p>)}
+      <span className="pay-buttons">
+        <button className="btn" disabled={busy || !p || 'error' in p} onClick={() => onRecord(n)}>Record payment</button>
+        <button className="copy" onClick={onCancel}>Cancel</button>
+      </span>
     </div>
   )
 }

@@ -11,7 +11,7 @@ import {
 import { ADMIN_EMAIL, isFounderName, loginKey, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { loadMembers } from './data'
 import { auth, db, firebaseConfig } from './firebase'
-import { carryover, payInterest, settleInterest, type LoanRequest } from './requests'
+import { carryover, customPayment, payInterest, settleInterest, type LoanRequest } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 
@@ -157,6 +157,20 @@ export const markLoanPaid = (id: string, year: number) =>
 /** The borrower paid this month's interest only; the balance stays. */
 export const payLoanInterest = (id: string, year: number) =>
   loanAction(id, year, (r) => { const p = payInterest(r); return { update: p.update, collected: p.collected } })
+
+/** Any amount paid this month: interest first, then carried-over interest, then the amount borrowed. */
+export const loanCustomPayment = (id: string, year: number, amount: number) =>
+  loanAction(id, year, (r) => {
+    const p = customPayment(r, amount)
+    if ('error' in p) throw new Error(p.error)
+    return {
+      collected: p.collected,
+      update: {
+        balance: p.balance, principal: p.principal, customPayments: (r.customPayments ?? 0) + 1,
+        ...(p.paidOff ? { status: 'paid', paidAt: Date.now() } : {}),
+      },
+    }
+  })
 
 /** Interest not paid: it is added to the balance and next month is charged on the new balance. */
 export const carryOverLoan = (id: string, year: number) =>

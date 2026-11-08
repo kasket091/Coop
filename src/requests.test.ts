@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Member } from './rules'
 import {
-  canAdminApprove, carryover, monthInterest, payInterest, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
+  canAdminApprove, carryover, customPayment, monthInterest, payInterest, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
 } from './requests'
 
 const zeros = () => Array(12).fill(0)
@@ -73,6 +73,27 @@ describe('pay interest and carryover (handbook p.8)', () => {
   })
   it('unpaid loans count the current balance, not the original amount', () => {
     expect(unpaidLoans([{ ...flex(5832), borrowerId: 'me' }], 'me').total).toBe(5832)
+  })
+  it('custom ₱500: interest first, the rest comes off the balance', () => {
+    const p = customPayment(flex(), 500)
+    expect(p).toMatchObject({ interestPart: 400, collected: 400, balance: 4900, principal: 4900, paidOff: false })
+  })
+  it('custom payment below the interest: the shortfall carries over', () => {
+    expect(customPayment(flex(), 300)).toMatchObject({ interestPart: 300, collected: 300, balance: 5100, principal: 5000, paidOff: false })
+  })
+  it('custom payment repays carried-over interest before the amount borrowed', () => {
+    // borrowed 5000, carried over once (balance 5400, interest now 432); paying 932 clears 432 + the 400 carried + 100
+    expect(customPayment(flex(5400), 932)).toMatchObject({ collected: 832, balance: 4900, principal: 4900 })
+  })
+  it('paying everything owed closes the loan', () => {
+    expect(customPayment(flex(), 5400)).toMatchObject({ balance: 0, paidOff: true, collected: 400 })
+  })
+  it('refuses nothing, or more than is owed', () => {
+    expect(customPayment(flex(), 0)).toMatchObject({ error: expect.stringMatching(/amount/i) })
+    expect(customPayment(flex(), 6000)).toMatchObject({ error: expect.stringContaining('5,400') })
+  })
+  it('settling a regular loan collects its flat interest', () => {
+    expect(settleInterest({ ...flex(), type: 'regular', amount: 20000, months: 3 })).toBe(3300)
   })
   it('regular (flat) loans have no monthly carryover', () => {
     expect(monthInterest({ ...flex(), type: 'regular' })).toBe(0)

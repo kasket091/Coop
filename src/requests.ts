@@ -18,6 +18,9 @@ export type LoanRequest = {
   paidAt?: number
   /** current amount owed; starts at `amount`, grows with each carryover */
   balance?: number
+  /** part of the balance that is the amount borrowed (the rest is carried-over interest) */
+  principal?: number
+  customPayments?: number
   carryovers?: number
   interestPayments?: number
   /** set when the admin approved without waiting for both co-makers */
@@ -94,5 +97,38 @@ export const payInterest = (r: LoanRequest) => ({
   update: { balance: balanceOf(r), interestPayments: (r.interestPayments ?? 0) + 1 },
 })
 
-/** When a loan is fully paid, any carried-over interest in the balance is interest collected. */
-export const settleInterest = (r: LoanRequest) => cents(Math.max(0, balanceOf(r) - r.amount))
+export const principalOf = (r: LoanRequest) => r.principal ?? r.amount
+
+/** Interest collected when a loan is fully paid: carried-over interest, plus a regular loan's flat interest. */
+export function settleInterest(r: LoanRequest): number {
+  const carried = Math.max(0, balanceOf(r) - principalOf(r))
+  if (r.type !== 'regular') return cents(carried)
+  const q = regularLoan(r.amount, r.months as 2 | 3 | 6)
+  return cents(carried + ('error' in q ? 0 : q.interest))
+}
+
+export type CustomPayment =
+  | { interestPart: number; collected: number; balance: number; principal: number; paidOff: boolean }
+  | { error: string }
+
+/**
+ * Any amount the borrower pays this month (e.g. ₱500). It covers this month's interest first, then interest
+ * carried over earlier, then the amount borrowed. Paying less than the interest carries the shortfall over.
+ */
+export function customPayment(r: LoanRequest, paid: number): CustomPayment {
+  const due = monthInterest(r)
+  const balance = balanceOf(r)
+  const owed = cents(balance + due)
+  if (!(paid > 0)) return { error: 'Enter the amount paid.' }
+  if (paid > owed + 0.001) return { error: `That's more than is owed (₱${owed.toLocaleString('en-PH', { maximumFractionDigits: 2 })}).` }
+  const interestPart = cents(Math.min(paid, due))
+  const shortfall = cents(due - interestPart)
+  let rest = cents(paid - interestPart)
+  const toCarried = Math.min(rest, Math.max(0, cents(balance - principalOf(r))))
+  rest = cents(rest - toCarried)
+  const newBalance = cents(balance + shortfall - (paid - interestPart))
+  return {
+    interestPart, collected: cents(interestPart + toCarried),
+    balance: Math.max(0, newBalance), principal: cents(principalOf(r) - rest), paidOff: newBalance <= 0.001,
+  }
+}
