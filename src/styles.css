@@ -311,3 +311,11 @@ input.locked { background: var(--cream); color: var(--navy); font-weight: 700; }
 /* loan reference (1FL, 2SL…) */
 .ref { display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 6px; background: var(--navy); color: #fff; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; vertical-align: 1px; }
 .carry-form { border-color: #e6c3c0; }
+
+/* terminated account */
+.terminated { margin-top: 28px; padding: 18px 16px; border-radius: var(--radius); background: var(--red-wash); border: 1.5px solid var(--red); }
+.terminated h2 { color: var(--red); font-size: 16px; }
+.terminated .reason { margin-top: 4px; color: #6e1c18; font-weight: 600; }
+.terminated .rows li { padding: 8px 0; border-top: 1px solid #e6c3c0; }
+.terminated .rows li.final b, .terminated .rows li.final span { color: var(--navy); font-weight: 700; font-size: 17px; }
+.terminated .rows li.owed b, .terminated .rows li.owed span { color: var(--red); font-weight: 700; }

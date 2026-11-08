@@ -3,9 +3,14 @@ import { MONTHS, peso } from './format'
 import { IconAlert, IconCheck } from './icons'
 import { closedMonths, loanLimit, memberSummary, minAnnualLoan, missedOwed, type CoopSummary, type Member } from './rules'
 import type { Summary } from './store'
+import { terminationPayout } from './termination'
 
 /** One member's locked year. Used by the member's Savings tab and the admin's member view. */
-export function MySavings({ m, coop, year, action, extra }: { m: Member; coop: CoopSummary; year: number; action?: ReactNode; extra?: ReactNode }) {
+export function MySavings({ m, coop, year, action, extra, termination }: {
+  m: Member; coop: CoopSummary; year: number; action?: ReactNode; extra?: ReactNode
+  /** set when the account is terminated: the reason and the member's unpaid loans */
+  termination?: { reason: string; unpaid: number }
+}) {
   const today = new Date()
   const s = memberSummary(m, coop, today, year)
   const closed = closedMonths(today, year)
@@ -59,13 +64,31 @@ export function MySavings({ m, coop, year, action, extra }: { m: Member; coop: C
         </ul>
       </div>
 
-      <div className="payout">
+      {termination ? <TerminationCard saved={s.saved} {...termination} /> : <div className="payout">
         <h2>December payout (projected)</h2>
         <div className="big">{peso(s.payout)}</div>
         <p>{peso(s.target)} savings + {peso(s.dividend)} dividend{s.rebate > 0 ? ` + ${peso(s.rebate)} top-borrower rebate` : ''}</p>
         <p>Assumes all 12 months are paid. Released Dec 16–19.</p>
-      </div>
+      </div>}
     </section>
+  )
+}
+
+function TerminationCard({ saved, reason, unpaid }: { saved: number; reason: string; unpaid: number }) {
+  const t = terminationPayout(saved, unpaid)
+  return (
+    <div className="terminated">
+      <h2>Account terminated</h2>
+      <p className="reason">{reason}</p>
+      <ul className="rows">
+        <li><span>Total savings</span><b>{peso(t.saved)}</b></li>
+        <li><span>Less 20% termination fee</span><b>−{peso(t.fee)}</b></li>
+        <li><span>Less unpaid loans (taken automatically)</span><b>−{peso(t.loansDeducted)}</b></li>
+        <li className="final"><span>Termination payout</span><b>{peso(t.payout)}</b></li>
+        {t.stillOwed > 0 && <li className="owed"><span>Still owed to the coop</span><b>{peso(t.stillOwed)}</b></li>}
+      </ul>
+      <p className="note">No projected dividend and no new loans while the account is terminated. Talk to the admin if this is wrong.</p>
+    </div>
   )
 }
 

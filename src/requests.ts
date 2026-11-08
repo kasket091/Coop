@@ -27,6 +27,8 @@ export type LoanRequest = {
   overLimit?: boolean
   /** loan reference, e.g. 3FL: a number per type, coop-wide, given when the loan is approved */
   ref?: string
+  /** running loan number across all types (#12) */
+  no?: number
   /** for a savings loan (SL): the month whose missed savings it covers */
   carriedMonth?: number
   /** closed by the admin without recording money (e.g. a test loan) */
@@ -187,8 +189,12 @@ export const LOAN_CODE: Record<LoanType, string> = {
 export function nextRef(counters: Record<string, number>, type: LoanType) {
   const code = LOAN_CODE[type]
   const n = (counters[code] ?? 0) + 1
-  return { ref: `${n}${code}`, counters: { ...counters, [code]: n } }
+  const no = (counters.ALL ?? 0) + 1 // one running number across every loan: #1, #2, …
+  return { ref: `${n}${code}`, no, counters: { ...counters, [code]: n, ALL: no } }
 }
+
+/** How a loan is named everywhere: "1SL #12". */
+export const refLabel = (r: { ref?: string; no?: number }) => (r.ref ? `${r.ref}${r.no ? ` #${r.no}` : ''}` : '')
 
 /** Missed savings carried over: an approved 10%-a-month loan, no co-maker, no request step. */
 export function savingsLoan(p: { borrowerId: string; borrowerName: string; amount: number; month: number; ref: string; now: number }): Omit<LoanRequest, 'id'> {

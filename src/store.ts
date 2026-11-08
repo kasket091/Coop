@@ -12,7 +12,7 @@ import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLi
 import { loadMembers } from './data'
 import { auth, db, firebaseConfig } from './firebase'
 import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
-import { balanceOf, carryover, customPayment, loanSnapshot, monthInterest, nextRef, payInterest, principalOf, savingsLoan, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
+import { balanceOf, carryover, customPayment, loanSnapshot, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 
@@ -23,6 +23,8 @@ export type StoredMember = Member & {
   sheetLoanBalance?: number
   /** uid of the board member who recruited them (their co-maker) */
   recruiterId?: string
+  /** set by the admin: 3 carryover months in a row, then a 4th unpaid. Disables loans and the projected dividend. */
+  terminated?: { at: number; reason: string }
 }
 export type { Txn }
 export type Session = { kind: 'admin' } | { kind: 'member'; uid: string } | null
@@ -213,13 +215,13 @@ export async function adminDecide(id: string, status: 'approved' | 'declined', y
     const now = Date.now()
     const next = status === 'approved' && !r.ref ? nextRef(counters, r.type) : null
     if (next) tx.set(counterRef, next.counters)
-    tx.update(ref, { status, decidedAt: now, ...(direct ? { directApproval: true } : {}), ...(next ? { ref: next.ref } : {}),
+    tx.update(ref, { status, decidedAt: now, ...(direct ? { directApproval: true } : {}), ...(next ? { ref: next.ref, no: next.no } : {}),
       ...(status === 'approved' ? { balance: r.amount, principal: r.amount } : {}) })
     if (status === 'approved') {
       memberId = r.borrowerId
       tx.set(doc(txns), txnRecord({
         memberId: r.borrowerId, memberName: r.borrowerName, kind: 'release', amount: r.amount, loanId: id,
-        note: `Loan ${next?.ref ?? r.ref ?? ''} approved${direct ? ' directly by the admin' : ''}`.replace('  ', ' '), loanBefore: loanSnapshot(r),
+        note: `Loan ${refLabel(next ?? r)} approved${direct ? ' directly by the admin' : ''}`.replace('  ', ' '), loanBefore: loanSnapshot(r),
       }, year, now))
     }
   })
@@ -399,18 +401,19 @@ export async function carryOverSavings(m: StoredMember, month: number, amount: n
   await runTransaction(db, async (tx) => {
     const counterRef = doc(db, 'counters', 'loans')
     const next = nextRef((await tx.get(counterRef)).data() ?? {}, 'savings')
-    loanRef = next.ref
+    loanRef = refLabel(next)
     const now = Date.now()
     const loanDoc = doc(requests)
-    const loan = savingsLoan({ borrowerId: m.uid, borrowerName: m.name, amount, month, ref: next.ref, now })
+    const loan = { ...savingsLoan({ borrowerId: m.uid, borrowerName: m.name, amount, month, ref: next.ref, now }), no: next.no }
+    const label = refLabel(next)
     // voiding this group withdraws the loan (there is no "pending" stage to go back to)
     const loanBefore: LoanSnapshot = { ...loanSnapshot({ ...loan, id: loanDoc.id }), status: 'withdrawn' }
     const base = { memberId: m.uid, memberName: m.name, month, loanId: loanDoc.id, loanBefore }
     tx.set(counterRef, next.counters)
     tx.set(loanDoc, loan)
-    tx.set(doc(txns), txnRecord({ ...base, kind: 'savings', amount, note: `${MONTH_NAMES[month]} savings carried over as loan ${next.ref}` }, year, now))
-    tx.set(doc(txns), txnRecord({ ...base, kind: 'release', amount, note: `Loan ${next.ref}: missed ${MONTH_NAMES[month]} savings, 10% a month` }, year, now))
-    tx.set(doc(txns), txnRecord({ ...base, kind: 'note', amount: 0, carryover: true, note: `${MONTH_NAMES[month]} carried over (${next.ref})` }, year, now))
+    tx.set(doc(txns), txnRecord({ ...base, kind: 'savings', amount, note: `${MONTH_NAMES[month]} savings carried over as loan ${label}` }, year, now))
+    tx.set(doc(txns), txnRecord({ ...base, kind: 'release', amount, note: `Loan ${label}: missed ${MONTH_NAMES[month]} savings, 10% a month` }, year, now))
+    tx.set(doc(txns), txnRecord({ ...base, kind: 'note', amount: 0, carryover: true, note: `${MONTH_NAMES[month]} carried over (${label})` }, year, now))
   })
   await rebuildLedger(m.uid, year)
   return loanRef
@@ -418,22 +421,43 @@ export async function carryOverSavings(m: StoredMember, month: number, amount: n
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-/** Gives references to approved or paid loans from before references existed, in approval order. */
+/** Gives references and running numbers to loans from before they existed, in approval order. */
 export async function assignMissingRefs(): Promise<void> {
   const all = asRequests((await getDocs(requests)).docs)
-    .filter((r) => !r.ref && (r.status === 'approved' || r.status === 'paid'))
+    .filter((r) => (!r.ref || !r.no) && (r.status === 'approved' || r.status === 'paid'))
     .sort((a, b) => (a.decidedAt ?? a.createdAt) - (b.decidedAt ?? b.createdAt))
   if (!all.length) return
   await runTransaction(db, async (tx) => {
     const counterRef = doc(db, 'counters', 'loans')
     let counters = (await tx.get(counterRef)).data() ?? {}
     for (const r of all) {
-      const next = nextRef(counters, r.type)
-      counters = next.counters
-      tx.update(doc(db, 'loanRequests', r.id), { ref: next.ref })
+      if (r.ref) { // has its type reference already: only the running number is new
+        const no = (counters.ALL ?? 0) + 1
+        counters = { ...counters, ALL: no }
+        tx.update(doc(db, 'loanRequests', r.id), { no })
+      } else {
+        const next = nextRef(counters, r.type)
+        counters = next.counters
+        tx.update(doc(db, 'loanRequests', r.id), { ref: next.ref, no: next.no })
+      }
     }
     tx.set(counterRef, counters)
   })
+}
+
+/** Terminates a member (admin-confirmed): loans and the projected dividend are disabled. Logged in their history. */
+export async function terminateMember(m: StoredMember, reason: string, year: number) {
+  const batch = writeBatch(db)
+  batch.update(doc(db, 'members', m.uid), { terminated: { at: Date.now(), reason } })
+  batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0, note: `Account terminated: ${reason}` }, year, Date.now()))
+  await batch.commit()
+}
+
+export async function restoreMember(m: StoredMember, year: number) {
+  const batch = writeBatch(db)
+  batch.update(doc(db, 'members', m.uid), { terminated: deleteField() })
+  batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0, note: 'Account restored by the admin' }, year, Date.now()))
+  await batch.commit()
 }
 
 /** Marks months where a member's interest was carried over (e.g. from the old sheet). Red on the dashboard; voidable. */

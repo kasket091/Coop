@@ -4,12 +4,15 @@ import { Dashboard } from './Dashboard'
 import { MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
-import { balanceOf, canAdminApprove, customPayment, monthInterest, unpaidLoans, type LoanRequest } from './requests'
+import { balanceOf, canAdminApprove, customPayment, monthInterest, refLabel, unpaidLoans, type LoanRequest } from './requests'
+import { carryoverMonths } from './ledger'
+import { closedMonths } from './rules'
+import { terminationFlag } from './termination'
 import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, addTransaction, adminDecide, assignMissingRefs, carryOverSavings, markCarryover, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
+  addMember, addTransaction, adminDecide, assignMissingRefs, carryOverSavings, markCarryover, restoreMember, terminateMember, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, previewResync, recomputeSummary, renameMember, resetLogin, runResync, saveHeads, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchMigrated, watchSummary,
   type ResyncRow, type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers,
@@ -80,7 +83,7 @@ function Members({ members, requests, txns, year }: { members: StoredMember[]; r
         {list.map((m) => (
           <li key={m.uid}><button onClick={() => show(m.uid)}>
             {m.name}{m.founder ? ' ★' : ''}
-            <span>{m.heads ? `${m.heads} heads · ${peso(sum(m.paid))}` : 'left · interest only'}</span>
+            <span>{m.terminated ? 'terminated' : m.heads ? `${m.heads} heads · ${peso(sum(m.paid))}` : 'left · interest only'}</span>
           </button></li>
         ))}
         {!list.length && <li className="note" style={{ padding: 16 }}>{members.length ? `No member named “${q}”.` : 'No members yet. Add one, or import the 2026 sheet from the Coop tab.'}</li>}
@@ -137,6 +140,18 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
   const [typed, setTyped] = useState('')
   const coop = useMemo(() => coopSummary(members), [members])
   const recruits = m.founder ? members.filter((x) => x.recruiterId === m.uid) : []
+  const flag = m.heads > 0 ? terminationFlag(carryoverMonths(txns, year).get(m.uid) ?? new Set(), m.paid, m.heads * 500, closedMonths(new Date(), year)) : null
+  const flagReason = flag ? `3 carryover months in a row (${flag.months.map((i) => MONTHS[i]).join(', ')}) and ${MONTHS[flag.fourth]} not paid.` : ''
+  const unpaidTotal = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0).total
+  const terminate = async () => {
+    const reason = window.prompt(`Terminate ${m.name}? Loans and the projected dividend are disabled. Reason:`, flagReason || '')
+    if (!reason) return
+    try { await terminateMember(m, reason, year); setMsg({ ok: true, text: `${m.name} is terminated.` }) } catch (err) { setMsg({ ok: false, text: (err as Error).message }) }
+  }
+  const restore = async () => {
+    if (!window.confirm(`Restore ${m.name}'s account? Loans and the dividend come back.`)) return
+    try { await restoreMember(m, year); setMsg({ ok: true, text: `${m.name} is active again.` }) } catch (err) { setMsg({ ok: false, text: (err as Error).message }) }
+  }
   const recruiter = members.find((x) => x.uid === m.recruiterId)
   const expected = m.founder ? RECRUITS[m.name] ?? [] : []
 
@@ -166,7 +181,11 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
   return (
     <section>
       <MySavings m={m} coop={coop} year={year} action={<button className="link" onClick={() => onBack()}>Back</button>}
+        termination={m.terminated ? { reason: m.terminated.reason, unpaid: unpaidTotal } : undefined}
         extra={<>
+          {m.terminated
+            ? <p className="alert" role="status">Terminated {new Date(m.terminated.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}. <button className="link inline" onClick={restore}>Restore account</button></p>
+            : flag && <div className="alert" role="status"><b>Should be terminated:</b> {flagReason} <span className="pay-buttons" style={{ marginTop: 8 }}><button className="btn danger" onClick={terminate}>Terminate</button></span></div>}
           {recruiter && <p className="note" style={{ marginTop: 4 }}>Recruited by <button className="link inline" onClick={() => onOpen(recruiter.uid)}>{recruiter.name}</button> (their co-maker)</p>}
           <UnpaidLoans m={m} requests={requests} year={year} />
         </>} />
@@ -357,7 +376,7 @@ function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanReq
         {u.loans.map((r) => (
           <li key={r.id}>
             <span>
-              {r.ref && <b className="ref">{r.ref}</b>}{peso(balanceOf(r))} owed{balanceOf(r) !== r.amount ? ` (borrowed ${peso(r.amount)})` : ''}
+              {r.ref && <b className="ref">{refLabel(r)}</b>}{peso(balanceOf(r))} owed{balanceOf(r) !== r.amount ? ` (borrowed ${peso(r.amount)})` : ''}
               <small>
                 approved {new Date(r.decidedAt ?? r.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
                 {monthInterest(r) > 0 ? ` · this month's interest ${peso(monthInterest(r))}` : ` · ${r.quote}`}
@@ -490,7 +509,7 @@ function Requests({ requests, year }: { requests: LoanRequest[]; year: number })
 function LoansAdmin({ requests, members }: { requests: LoanRequest[]; members: StoredMember[] }) {
   const [view, setView] = useState<'active' | 'closed'>('active')
   // loans approved before references existed get theirs (1FL, 2FL, …) the first time this tab opens
-  useEffect(() => { if (requests.some((r) => !r.ref && (r.status === 'approved' || r.status === 'paid'))) assignMissingRefs().catch(() => {}) }, [requests])
+  useEffect(() => { if (requests.some((r) => (!r.ref || !r.no) && (r.status === 'approved' || r.status === 'paid'))) assignMissingRefs().catch(() => {}) }, [requests])
   const active = requests.filter((r) => r.status === 'approved')
   const closed = requests.filter((r) => r.status === 'paid')
   const list = view === 'active' ? active : closed

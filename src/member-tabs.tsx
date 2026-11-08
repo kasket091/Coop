@@ -3,7 +3,7 @@ import { ADMIN_MEMBER_NAME } from './accounts'
 import { peso } from './format'
 import type { Txn } from './ledger'
 import {
-  balanceOf, comakerMode, monthInterest, requestStage, unpaidLoans, validateRequest, type LoanRequest, type LoanType,
+  balanceOf, comakerMode, monthInterest, refLabel, requestStage, unpaidLoans, validateRequest, type LoanRequest, type LoanType,
 } from './requests'
 import { depositAmount, loanLimit, monthsLeft } from './rules'
 import {
@@ -61,7 +61,9 @@ export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: num
       </div>
 
       <div className="section">
-        <RequestForm me={me} year={year} hasPending={pending.length > 0} hasUnpaid={unpaid.total > 0} />
+        {me.terminated
+          ? <><h1 style={{ fontSize: 22 }}>Request a loan</h1><p className="alert" role="status">Your account is terminated, so loans can't be requested. See the Savings tab.</p></>
+          : <RequestForm me={me} year={year} hasPending={pending.length > 0} hasUnpaid={unpaid.total > 0} />}
       </div>
       <div className="section"><Calculator member={me} year={year} /></div>
     </section>
@@ -205,7 +207,7 @@ export function RequestCard({ r, children }: { r: LoanRequest; children?: React.
   return (
     <li className="request">
       <div className="request-head">
-        <b>{r.ref ? <span className="ref">{r.ref}</span> : null}{peso(r.amount)} · {TYPES[r.type]}</b>
+        <b>{r.ref ? <span className="ref">{refLabel(r)}</span> : null}{peso(r.amount)} · {TYPES[r.type]}</b>
         <span className={`stage stage-${requestStage(r).split(' ')[0].toLowerCase()}`}>{requestStage(r)}</span>
       </div>
       <p className="note" style={{ marginTop: 2 }}>{r.months} month{r.months === 1 ? '' : 's'} · {r.quote} · sent {fmtDate(r.createdAt)}</p>

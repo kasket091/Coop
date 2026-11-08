@@ -72,6 +72,7 @@ service cloud.firestore {
 
       // the admin creates Savings Loans (carried-over missed savings) directly; members only through the checked request shapes
       allow create: if isAdmin() || isMember()
+        && !('terminated' in meDoc())
         && next().keys().hasOnly(['borrowerId', 'borrowerName', 'type', 'amount', 'months', 'quote', 'comakers', 'comakerIds', 'status', 'createdAt', 'overLimit'])
         && next().borrowerId == me()
         && next().borrowerName == meDoc().name
