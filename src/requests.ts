@@ -25,6 +25,10 @@ export type LoanRequest = {
   interestPayments?: number
   /** a founder borrowing above their limit (needs 2 founding co-makers) */
   overLimit?: boolean
+  /** loan reference, e.g. 3FL: a number per type, coop-wide, given when the loan is approved */
+  ref?: string
+  /** for a savings loan (SL): the month whose missed savings it covers */
+  carriedMonth?: number
   /** closed by the admin without recording money (e.g. a test loan) */
   closedNoMoney?: boolean
   /** set when the admin approved without waiting for both co-makers */
@@ -173,3 +177,24 @@ export const loanSnapshot = (r: LoanRequest) => ({
   ...(r.paidAt ? { paidAt: r.paidAt } : {}), ...(r.decidedAt ? { decidedAt: r.decidedAt } : {}),
 })
 export type LoanSnapshot = ReturnType<typeof loanSnapshot>
+
+/** Two-letter reference code per loan type (the coop sheet used FL/RL/HL/S). */
+export const LOAN_CODE: Record<LoanType, string> = {
+  flex: 'FL', savings: 'SL', regular: 'RL', grocery: 'GL', appliance: 'AL', events: 'HL', deposit: 'DL',
+}
+
+/** The next reference for a loan type, counted coop-wide per type: 1SL, 2SL, … */
+export function nextRef(counters: Record<string, number>, type: LoanType) {
+  const code = LOAN_CODE[type]
+  const n = (counters[code] ?? 0) + 1
+  return { ref: `${n}${code}`, counters: { ...counters, [code]: n } }
+}
+
+/** Missed savings carried over: an approved 10%-a-month loan, no co-maker, no request step. */
+export function savingsLoan(p: { borrowerId: string; borrowerName: string; amount: number; month: number; ref: string; now: number }): Omit<LoanRequest, 'id'> {
+  return {
+    borrowerId: p.borrowerId, borrowerName: p.borrowerName, type: 'savings', amount: p.amount, months: 1,
+    quote: '10% a month until paid', comakers: {}, comakerIds: [], status: 'approved',
+    createdAt: p.now, decidedAt: p.now, balance: p.amount, principal: p.amount, ref: p.ref, carriedMonth: p.month,
+  }
+}

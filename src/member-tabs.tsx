@@ -149,7 +149,7 @@ function RequestForm({ me, year, hasPending, hasUnpaid }: { me: StoredMember; ye
       <div className="field">
         <label htmlFor="rq-type">Loan type</label>
         <select id="rq-type" value={type} onChange={(e) => { setType(e.target.value as LoanType); setSent(false) }}>
-          {Object.entries(TYPES).filter(([k]) => k !== 'events' || me.founder).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          {Object.entries(TYPES).filter(([k]) => (k !== 'events' || me.founder) && k !== 'savings').map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
         <p className="note" style={{ marginTop: 0 }}>{CONDITIONS[type]}</p>
       </div>
@@ -205,7 +205,7 @@ export function RequestCard({ r, children }: { r: LoanRequest; children?: React.
   return (
     <li className="request">
       <div className="request-head">
-        <b>{peso(r.amount)} · {TYPES[r.type]}</b>
+        <b>{r.ref ? <span className="ref">{r.ref}</span> : null}{peso(r.amount)} · {TYPES[r.type]}</b>
         <span className={`stage stage-${requestStage(r).split(' ')[0].toLowerCase()}`}>{requestStage(r)}</span>
       </div>
       <p className="note" style={{ marginTop: 2 }}>{r.months} month{r.months === 1 ? '' : 's'} · {r.quote} · sent {fmtDate(r.createdAt)}</p>

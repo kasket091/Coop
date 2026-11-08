@@ -12,7 +12,7 @@ import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLi
 import { loadMembers } from './data'
 import { auth, db, firebaseConfig } from './firebase'
 import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
-import { balanceOf, carryover, customPayment, loanSnapshot, monthInterest, payInterest, principalOf, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
+import { balanceOf, carryover, customPayment, loanSnapshot, monthInterest, nextRef, payInterest, principalOf, savingsLoan, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 
@@ -206,15 +206,20 @@ export async function adminDecide(id: string, status: 'approved' | 'declined', y
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
     const snap = await tx.get(ref)
+    const counterRef = doc(db, 'counters', 'loans')
+    const counters = (await tx.get(counterRef)).data() ?? {}
     const r = { ...(snap.data() as LoanRequest), id }
     if (r.status !== 'pending') throw new Error('This request was already withdrawn or decided.')
     const now = Date.now()
-    tx.update(ref, { status, decidedAt: now, ...(direct ? { directApproval: true } : {}), ...(status === 'approved' ? { balance: r.amount, principal: r.amount } : {}) })
+    const next = status === 'approved' && !r.ref ? nextRef(counters, r.type) : null
+    if (next) tx.set(counterRef, next.counters)
+    tx.update(ref, { status, decidedAt: now, ...(direct ? { directApproval: true } : {}), ...(next ? { ref: next.ref } : {}),
+      ...(status === 'approved' ? { balance: r.amount, principal: r.amount } : {}) })
     if (status === 'approved') {
       memberId = r.borrowerId
       tx.set(doc(txns), txnRecord({
         memberId: r.borrowerId, memberName: r.borrowerName, kind: 'release', amount: r.amount, loanId: id,
-        note: `Loan approved${direct ? ' directly by the admin' : ''}`, loanBefore: loanSnapshot(r),
+        note: `Loan ${next?.ref ?? r.ref ?? ''} approved${direct ? ' directly by the admin' : ''}`.replace('  ', ' '), loanBefore: loanSnapshot(r),
       }, year, now))
     }
   })
@@ -381,6 +386,54 @@ export async function renameMember(m: StoredMember, newName: string): Promise<vo
   if (m.loginKey && m.email) { batch.delete(doc(db, 'logins', m.loginKey)); batch.set(doc(db, 'logins', key), { email: m.email, name }) }
   if (m.founder) batch.set(doc(db, 'founders', m.uid), { name })
   await batch.commit()
+}
+
+/**
+ * Missed savings carried over: the month counts as saved (red on the dashboard) and an approved 10%-a-month
+ * Savings Loan (e.g. 1SL) is created at once, no co-maker or approval. Voiding it undoes all three.
+ */
+export async function carryOverSavings(m: StoredMember, month: number, amount: number, year: number): Promise<string> {
+  if (!(amount > 0)) throw new Error('Enter the missed amount.')
+  await requireMigrated()
+  let loanRef = ''
+  await runTransaction(db, async (tx) => {
+    const counterRef = doc(db, 'counters', 'loans')
+    const next = nextRef((await tx.get(counterRef)).data() ?? {}, 'savings')
+    loanRef = next.ref
+    const now = Date.now()
+    const loanDoc = doc(requests)
+    const loan = savingsLoan({ borrowerId: m.uid, borrowerName: m.name, amount, month, ref: next.ref, now })
+    // voiding this group withdraws the loan (there is no "pending" stage to go back to)
+    const loanBefore: LoanSnapshot = { ...loanSnapshot({ ...loan, id: loanDoc.id }), status: 'withdrawn' }
+    const base = { memberId: m.uid, memberName: m.name, month, loanId: loanDoc.id, loanBefore }
+    tx.set(counterRef, next.counters)
+    tx.set(loanDoc, loan)
+    tx.set(doc(txns), txnRecord({ ...base, kind: 'savings', amount, note: `${MONTH_NAMES[month]} savings carried over as loan ${next.ref}` }, year, now))
+    tx.set(doc(txns), txnRecord({ ...base, kind: 'release', amount, note: `Loan ${next.ref}: missed ${MONTH_NAMES[month]} savings, 10% a month` }, year, now))
+    tx.set(doc(txns), txnRecord({ ...base, kind: 'note', amount: 0, carryover: true, note: `${MONTH_NAMES[month]} carried over (${next.ref})` }, year, now))
+  })
+  await rebuildLedger(m.uid, year)
+  return loanRef
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** Gives references to approved or paid loans from before references existed, in approval order. */
+export async function assignMissingRefs(): Promise<void> {
+  const all = asRequests((await getDocs(requests)).docs)
+    .filter((r) => !r.ref && (r.status === 'approved' || r.status === 'paid'))
+    .sort((a, b) => (a.decidedAt ?? a.createdAt) - (b.decidedAt ?? b.createdAt))
+  if (!all.length) return
+  await runTransaction(db, async (tx) => {
+    const counterRef = doc(db, 'counters', 'loans')
+    let counters = (await tx.get(counterRef)).data() ?? {}
+    for (const r of all) {
+      const next = nextRef(counters, r.type)
+      counters = next.counters
+      tx.update(doc(db, 'loanRequests', r.id), { ref: next.ref })
+    }
+    tx.set(counterRef, counters)
+  })
 }
 
 /** Marks months where a member's interest was carried over (e.g. from the old sheet). Red on the dashboard; voidable. */

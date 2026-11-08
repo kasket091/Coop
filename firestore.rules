@@ -10,6 +10,11 @@ service cloud.firestore {
     function isMember() { return signedIn() && exists(/databases/$(database)/documents/members/$(me())); }
     function isFounder(id) { return exists(/databases/$(database)/documents/founders/$(id)); }
 
+    // loan reference counters (1FL, 2SL, …): admin only
+    match /counters/{doc} {
+      allow read, write: if isAdmin();
+    }
+
     match /settings/{doc} {
       allow read: if signedIn();
       allow write: if isAdmin();

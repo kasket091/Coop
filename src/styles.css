@@ -307,3 +307,7 @@ input.locked { background: var(--cream); color: var(--navy); font-weight: 700; }
 .carry-open { margin: 0 0 14px auto; display: block; }
 .carry-title { color: var(--navy); }
 @media print { .sheet td.carry { background: #f4c7c3 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+
+/* loan reference (1FL, 2SL…) */
+.ref { display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 6px; background: var(--navy); color: #fff; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; vertical-align: 1px; }
+.carry-form { border-color: #e6c3c0; }

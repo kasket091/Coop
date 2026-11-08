@@ -9,7 +9,7 @@ import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, addTransaction, adminDecide, markCarryover, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
+  addMember, addTransaction, adminDecide, assignMissingRefs, carryOverSavings, markCarryover, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, previewResync, recomputeSummary, renameMember, resetLogin, runResync, saveHeads, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchMigrated, watchSummary,
   type ResyncRow, type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers,
@@ -187,6 +187,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
       <div className="section">
         <h2>Transactions</h2>
         <AddTxn m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
+        <CarrySavings m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
         <MarkCarryover m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
         {msg && <p className={msg.ok ? 'success' : 'alert'} role="status">{msg.text}</p>}
         <TxnList txns={txns} onVoid={askVoid} />
@@ -220,6 +221,46 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
         </div>
       )}
     </section>
+  )
+}
+
+/** Carry over a missed month's savings: the month counts as saved (red), and a 10% Savings Loan (nSL) starts at once. */
+function CarrySavings({ m, year, onDone }: { m: StoredMember; year: number; onDone: (msg: string) => void }) {
+  const due = m.heads * 500
+  const firstShort = m.paid.findIndex((p, i) => i <= ledgerMonth(year) && p < due)
+  const [open, setOpen] = useState(false)
+  const [month, setMonth] = useState(firstShort >= 0 ? firstShort : ledgerMonth(year))
+  const [amount, setAmount] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const missing = Math.max(0, due - (m.paid[month] ?? 0))
+  const n = amount === '' ? missing : Number(amount.replace(/[^\d.]/g, '')) || 0
+  if (!open) return <button className="btn-mini carry-open" onClick={() => setOpen(true)}>Carry over missed savings</button>
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!window.confirm(`Carry over ${m.name}'s ${MONTHS[month]} savings of ${peso(n)}? ${MONTHS[month]} counts as saved and a Savings Loan at 10% a month starts now.`)) return
+    setBusy(true); setError(null)
+    try {
+      const ref = await carryOverSavings(m, month, n, year)
+      onDone(`${MONTHS[month]} savings carried over as loan ${ref} (${peso(n)} at 10% a month).`); setOpen(false); setAmount('')
+    } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(false) }
+  }
+  return (
+    <form className="add-txn carry-form" onSubmit={submit}>
+      <b className="carry-title">Carry over missed savings</b>
+      <div className="add-txn-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <div className="field"><label htmlFor="sm">Month missed</label>
+          <select id="sm" value={month} onChange={(e) => { setMonth(Number(e.target.value)); setAmount('') }}>{MONTHS.map((mo, i) => <option key={mo} value={i}>{mo}</option>)}</select></div>
+        <div className="field"><label htmlFor="sa">Amount (₱)</label>
+          <input id="sa" inputMode="decimal" value={amount === '' ? String(missing) : amount} onChange={(e) => setAmount(e.target.value)} /></div>
+      </div>
+      <p className="note" style={{ marginTop: 0 }}>{MONTHS[month]} will count as saved ({peso(n)}, red on the Dashboard) and a Savings Loan at 10% a month starts now. It appears in Active Loans and Unpaid loans.</p>
+      {error && <p className="alert" role="alert">{error}</p>}
+      <span className="pay-buttons">
+        <button className="btn" disabled={busy || !(n > 0)}>{busy ? 'Saving…' : 'Carry over as loan'}</button>
+        <button type="button" className="copy" onClick={() => setOpen(false)}>Cancel</button>
+      </span>
+    </form>
   )
 }
 
@@ -316,7 +357,7 @@ function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanReq
         {u.loans.map((r) => (
           <li key={r.id}>
             <span>
-              {peso(balanceOf(r))} owed{balanceOf(r) !== r.amount ? ` (borrowed ${peso(r.amount)})` : ''}
+              {r.ref && <b className="ref">{r.ref}</b>}{peso(balanceOf(r))} owed{balanceOf(r) !== r.amount ? ` (borrowed ${peso(r.amount)})` : ''}
               <small>
                 approved {new Date(r.decidedAt ?? r.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
                 {monthInterest(r) > 0 ? ` · this month's interest ${peso(monthInterest(r))}` : ` · ${r.quote}`}
@@ -448,6 +489,8 @@ function Requests({ requests, year }: { requests: LoanRequest[]; year: number })
 // ---------- loans: active and closed ----------
 function LoansAdmin({ requests, members }: { requests: LoanRequest[]; members: StoredMember[] }) {
   const [view, setView] = useState<'active' | 'closed'>('active')
+  // loans approved before references existed get theirs (1FL, 2FL, …) the first time this tab opens
+  useEffect(() => { if (requests.some((r) => !r.ref && (r.status === 'approved' || r.status === 'paid'))) assignMissingRefs().catch(() => {}) }, [requests])
   const active = requests.filter((r) => r.status === 'approved')
   const closed = requests.filter((r) => r.status === 'paid')
   const list = view === 'active' ? active : closed

@@ -11,6 +11,7 @@ export const TYPES: Record<LoanType, string> = {
   appliance: 'Appliance / device (5%)',
   events: 'Special Events (8%)',
   deposit: 'Loan Against Deposit (7%)',
+  savings: 'Savings Loan (10%)',
 }
 export const CONDITIONS: Record<keyof typeof TYPES, string> = {
   regular: '₱10,000–₱50,000 for 2 or 3 months; ₱20,000–₱75,000 for 6 months.',
@@ -19,6 +20,7 @@ export const CONDITIONS: Record<keyof typeof TYPES, string> = {
   appliance: 'At least 2 months. Proof of receipt required.',
   events: 'Board members only.',
   deposit: '80% of your savings, no co-maker. Only when you have no unpaid loans.',
+  savings: 'Missed savings carried over by the admin: 10% a month until paid.',
 }
 
 /** Months a loan of this type may run today: up to December 15 of the cycle year. */
@@ -53,7 +55,7 @@ export function Calculator({ member, year }: { member: Member | null; year: numb
       <div className="field">
         <label htmlFor="type">Loan type</label>
         <select id="type" value={type} onChange={(e) => setType(e.target.value as LoanType)}>
-          {Object.entries(TYPES).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          {Object.entries(TYPES).filter(([k]) => k !== 'savings').map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
         <p className="note" style={{ marginTop: 0 }}>{CONDITIONS[type]}</p>
       </div>
