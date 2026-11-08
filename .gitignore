@@ -9,3 +9,8 @@ dist/
 firebase-debug.log
 firestore-debug.log
 .vite/
+
+# local config (Firebase web keys); see .env.example
+.env
+.env.*
+!.env.example
