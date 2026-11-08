@@ -58,6 +58,18 @@ The coop is moving from the spreadsheet to the app for real. Members need to see
   - It catches up the ₱8,213 of interest added to the sheet since the 8 Nov import. The sheet now shows ₱254,645.93.
   - Interest recorded in the app since the import is replaced by the sheet's numbers. Only test entries exist.
   - After the switch the sheet is no longer read.
+- **Voiding a loan-linked transaction also reverses it on the loan.**
+  - Each loan action saves the loan's state before the change on its transaction: balance, principal, status and counters.
+  - Voiding restores that state, for example reopening a loan wrongly marked paid or restoring its balance.
+  - It is only allowed on that loan's newest live transaction ("void the later ones first"), so the history never contradicts itself.
+  - Voiding a `release` withdraws the approval and sends the request back to pending.
+- **Re-sync safety:**
+  - It shows a preview per member (current numbers in the app → sheet numbers) and asks the admin to type `SYNC`.
+  - It runs once: it records `settings/migration.v3` and the button disappears.
+  - It adds members who are new on the sheet.
+  - It leaves loan requests and test loans as they are. The admin closes those with Mark as paid or void.
+- **The old-sheet loan balance stays a typed number,** but every change writes a `note` transaction (amount 0) such as "Old sheet loan balance changed ₱0 → ₱20,000". Changes are in the history even though the number is typed.
+- **The dashboard's 3% column copies the sheet:** 3% of each member's interest in every row, with the top borrower's row highlighted as the one who receives it.
 - **Member Loans tab order:** Current remaining total (big number), Active loans (balance, this month's interest, payments), My requests (pending), Closed loans, Payment transactions (all of theirs, newest first), then Request a loan and the Calculator.
 - **Admin tabs (at most 5):** Members · Loans · Requests · Dashboard · Coop.
 - **Dashboard layout:**
