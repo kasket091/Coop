@@ -28,7 +28,7 @@ service cloud.firestore {
     // Typed name -> sign-in email. Get by exact hash only; nobody can list the names.
     match /logins/{key} {
       allow get: if true;
-      allow list: if false;
+      allow list: if isAdmin(); // only for whole-database backups
       allow write: if isAdmin();
     }
 

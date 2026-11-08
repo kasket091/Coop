@@ -16,6 +16,7 @@ import { balanceOf, carryover, customPayment, loanSnapshot, monthInterest, nextR
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { payFromSavings } from './termination'
+import { BACKUP_COLLECTIONS, makeBackup, type Backup } from './backup'
 
 export type { Summary }
 /** `rebate` is this member's own top-borrower rebate (0 unless they are the top borrower). */
@@ -682,4 +683,33 @@ export async function startCycle(year: number): Promise<void> {
   }
   await setDoc(doc(db, 'settings', 'cycle'), { year })
   await recomputeSummary([])
+}
+
+// ---------- backup, clear, restore (admin) ----------
+/** Every document in every collection the app uses, as one backup. */
+export async function exportDatabase(): Promise<Backup> {
+  const collections: Backup['collections'] = {}
+  for (const name of BACKUP_COLLECTIONS) {
+    collections[name] = (await getDocs(collection(db, name))).docs.map((d) => ({ id: d.id, data: d.data() }))
+  }
+  return makeBackup(collections, Date.now())
+}
+
+/** Deletes every document the app uses. Sign-in accounts (passwords) are kept, so a restore brings logins back. */
+export async function clearDatabase(onProgress: (msg: string) => void = () => {}): Promise<void> {
+  for (const name of BACKUP_COLLECTIONS) {
+    onProgress(`Clearing ${name}…`)
+    const docs = (await getDocs(collection(db, name))).docs
+    await commitChunks(docs.map((d) => (b) => b.delete(d.ref)))
+  }
+}
+
+/** Replaces the whole database with a backup: clears everything, then writes the backup back exactly. */
+export async function restoreDatabase(backup: Backup, onProgress: (msg: string) => void = () => {}): Promise<void> {
+  await clearDatabase(onProgress)
+  for (const name of BACKUP_COLLECTIONS) {
+    const docs = backup.collections[name] ?? []
+    onProgress(`Restoring ${name} (${docs.length})…`)
+    await commitChunks(docs.map((d) => (b) => b.set(doc(db, name, d.id), d.data)))
+  }
 }

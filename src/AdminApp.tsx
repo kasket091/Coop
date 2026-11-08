@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { RECRUITS, startingPassword } from './accounts'
+import { backupSummary, parseBackup, type Backup } from './backup'
 import { Dashboard } from './Dashboard'
 import { MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
@@ -12,7 +13,7 @@ import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, addTransaction, adminDecide, ensureRefs, carryOverSavings, fixSavingsLoans, markCarryover, restoreMember, terminateMember, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
+  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, markCarryover, restoreMember, terminateMember, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, previewResync, recomputeSummary, renameMember, resetLogin, runResync, saveHeads, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchMigrated, watchSummary,
   type ResyncRow, type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers,
@@ -542,6 +543,86 @@ function LoansAdmin({ requests, members, year }: { requests: LoanRequest[]; memb
   )
 }
 
+// ---------- backup, clear, restore ----------
+/** Saves the whole database to a file on this device. */
+async function downloadBackup(label = 'backup'): Promise<void> {
+  const b = await exportDatabase()
+  const stamp = new Date(b.exportedAt).toISOString().slice(0, 16).replace('T', '_').replace(':', '')
+  const url = URL.createObjectURL(new Blob([JSON.stringify(b, null, 1)], { type: 'application/json' }))
+  const a = Object.assign(document.createElement('a'), { href: url, download: `hilas-coop-${label}-${stamp}.json` })
+  document.body.append(a); a.click(); a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 2000)
+}
+
+function BackupRestore() {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [mode, setMode] = useState<'clear' | 'restore' | null>(null)
+  const [typed, setTyped] = useState('')
+  const [file, setFile] = useState<Backup | null>(null)
+  const run = async (label: string, fn: () => Promise<string>) => {
+    setBusy(label); setMsg(null)
+    try { setMsg({ ok: true, text: await fn() }); setMode(null); setTyped(''); setFile(null) }
+    catch (err) { setMsg({ ok: false, text: (err as Error).message || 'Something went wrong. Check your connection.' }) }
+    finally { setBusy(null) }
+  }
+  const pick = async (f: File | undefined) => {
+    setMsg(null); setFile(null)
+    if (!f) return
+    const b = parseBackup(await f.text())
+    if ('error' in b) setMsg({ ok: false, text: b.error }); else setFile(b)
+  }
+  const s = file ? backupSummary(file) : null
+  return (
+    <div className="section backup">
+      <h2>Backup & restore</h2>
+      <p className="note">A backup is one file with every member, loan, transaction and total (names and money, no passwords). Keep it private.</p>
+      <button className="btn wide" disabled={!!busy} onClick={() => run('download', async () => { await downloadBackup(); return 'Backup downloaded. Keep the file somewhere safe.' })}>
+        {busy === 'download' ? 'Preparing…' : 'Download backup'}
+      </button>
+      <div className="actions">
+        <button className="copy" disabled={!!busy} onClick={() => { setMode(mode === 'restore' ? null : 'restore'); setTyped(''); setMsg(null) }}>Restore from backup</button>
+        <button className="copy danger" disabled={!!busy} onClick={() => { setMode(mode === 'clear' ? null : 'clear'); setTyped(''); setMsg(null) }}>Clear database</button>
+      </div>
+
+      {mode === 'restore' && (
+        <div className="custom-pay" style={{ marginTop: 12 }}>
+          <label htmlFor="bf">Backup file</label>
+          <input id="bf" type="file" accept="application/json,.json" onChange={(e) => pick(e.target.files?.[0])} />
+          {s && <p className="note">Backup from {new Date(s.exportedAt).toLocaleString('en-PH')}: {s.members} members, {s.loanRequests} loans, {s.transactions} transactions. Restoring replaces everything now in the app with this.</p>}
+          {s && <>
+            <label htmlFor="rt">Type <b>RESTORE</b> to replace the database</label>
+            <input id="rt" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
+          </>}
+          <span className="pay-buttons">
+            <button className="btn" disabled={!file || typed.trim() !== 'RESTORE' || !!busy}
+              onClick={() => run('restore', async () => { await downloadBackup('before-restore'); await restoreDatabase(file!, setBusy); return 'Restored. (A backup of what was there before was downloaded first.)' })}>
+              {busy && busy !== 'download' ? busy : 'Restore'}
+            </button>
+            <button className="copy" onClick={() => setMode(null)}>Cancel</button>
+          </span>
+        </div>
+      )}
+
+      {mode === 'clear' && (
+        <div className="custom-pay" style={{ marginTop: 12, borderColor: 'var(--red)' }}>
+          <p className="alert" role="status" style={{ marginTop: 0 }}>This deletes every member, loan, transaction and total. A backup downloads first so you can restore it. Logins (passwords) are kept.</p>
+          <label htmlFor="ct2">Type <b>CLEAR</b> to delete everything</label>
+          <input id="ct2" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
+          <span className="pay-buttons">
+            <button className="btn danger" disabled={typed.trim() !== 'CLEAR' || !!busy}
+              onClick={() => run('clear', async () => { await downloadBackup('before-clear'); await clearDatabase(setBusy); return 'Database cleared. The backup file you just downloaded can restore it.' })}>
+              {busy && busy !== 'download' ? busy : 'Clear database'}
+            </button>
+            <button className="copy" onClick={() => setMode(null)}>Cancel</button>
+          </span>
+        </div>
+      )}
+      {msg && <p className={msg.ok ? 'success' : 'alert'} role="status">{msg.text}</p>}
+    </div>
+  )
+}
+
 // ---------- coop, import, new cycle ----------
 function CoopAdmin({ members, summary, year }: { members: StoredMember[]; summary: Summary | null; year: number }) {
   const [progress, setProgress] = useState<string | null>(null)
@@ -613,6 +694,7 @@ function CoopAdmin({ members, summary, year }: { members: StoredMember[]; summar
         </button>
       </div>
       {error && <p className="alert" role="alert">{error}</p>}
+      <BackupRestore />
       <div className="section"><button className="copy wide" onClick={() => signOutUser()}>Log out</button></div>
     </section>
   )
