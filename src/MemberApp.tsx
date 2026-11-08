@@ -1,0 +1,56 @@
+import { useEffect, useState } from 'react'
+import { IconBell, IconLoans, IconPay, IconSavings, IconUser } from './icons'
+import { AccountTab, AlertsTab, LoansTab } from './member-tabs'
+import type { LoanRequest } from './requests'
+import { CoopSection, MySavings } from './savings'
+import { Loading, Shell, type TabDef } from './Shell'
+import { signOutUser, summaryFor, watchComakerRequests, watchMember, watchMyRequests, watchSummary, type StoredMember, type Summary } from './store'
+import { PayRules } from './tabs'
+
+type Tab = 'savings' | 'loans' | 'alerts' | 'pay' | 'account'
+
+export function MemberApp({ uid, year }: { uid: string; year: number }) {
+  const [me, setMe] = useState<StoredMember | null | undefined>(undefined)
+  const [summary, setSummary] = useState<Summary | null>(null)
+  const [mine, setMine] = useState<LoanRequest[]>([])
+  const [asked, setAsked] = useState<LoanRequest[]>([])
+  const [tab, setTab] = useState<Tab>('savings')
+
+  useEffect(() => watchMember(uid, setMe), [uid])
+  useEffect(() => watchSummary(setSummary), [])
+  useEffect(() => watchMyRequests(uid, setMine), [uid])
+  useEffect(() => (me?.founder ? watchComakerRequests(uid, setAsked) : undefined), [uid, me?.founder])
+
+  if (me === undefined) return <Shell year={year}><Loading /></Shell>
+  if (me === null) {
+    // signed in, but the admin removed this member (or reset their login)
+    return (
+      <Shell year={year}>
+        <div className="error" role="alert">
+          <h1>This account is no longer active</h1>
+          <p>Ask the admin if you think this is a mistake.</p>
+          <button className="btn" onClick={() => signOutUser()}>Log out</button>
+        </div>
+      </Shell>
+    )
+  }
+
+  const waiting = asked.filter((r) => r.status === 'pending' && r.comakers[uid]?.status === 'pending').length
+  const tabs: TabDef<Tab>[] = [
+    { id: 'savings', label: 'Savings', Icon: IconSavings },
+    { id: 'loans', label: 'Loans', Icon: IconLoans },
+    ...(me.founder ? [{ id: 'alerts' as const, label: 'Alerts', Icon: IconBell, badge: waiting }] : []),
+    { id: 'pay', label: 'Pay & Rules', Icon: IconPay },
+    { id: 'account', label: 'Account', Icon: IconUser },
+  ]
+
+  return (
+    <Shell year={year} tabs={tabs} current={tab} onTab={setTab}>
+      {tab === 'savings' && <><MySavings m={me} coop={summaryFor(summary, me)} year={year} /><CoopSection summary={summary} /></>}
+      {tab === 'loans' && <LoansTab me={me} year={year} mine={mine} />}
+      {tab === 'alerts' && me.founder && <AlertsTab me={me} asked={asked} />}
+      {tab === 'pay' && <PayRules />}
+      {tab === 'account' && <AccountTab me={me} />}
+    </Shell>
+  )
+}

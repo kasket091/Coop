@@ -13,6 +13,12 @@ export const IconLoans = () => (
 export const IconPay = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...S}><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z" /><path d="M9 8h6M9 12h6" /></svg>
 )
+export const IconBell = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" {...S}><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2 2 0 0 0 4 0" /></svg>
+)
+export const IconUser = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" {...S}><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" /></svg>
+)
 export const IconCheck = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...S} strokeWidth={3}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
 )

@@ -1,62 +1,48 @@
 import { useState } from 'react'
 import { peso } from './format'
-import { loanLimit, MONTHLY_LOANS, monthlyLoan, monthlyLoanError, regularLoan, type CoopSummary, type Member, type MonthlyLoanType } from './rules'
-
-export function Coop({ coop, members }: { coop: CoopSummary; members: Member[] }) {
-  const active = members.filter((m) => m.heads > 0).length
-  return (
-    <section>
-      <h1 style={{ fontSize: 22 }}>The coop this year</h1>
-      <div className="section">
-        <ul className="rows panel">
-          <li><span>Members</span><b>{active}</b></li>
-          <li><span>Heads</span><b>{coop.totalHeads}</b></li>
-          <li><span>Savings collected</span><b>{peso(coop.totalSavings)}</b></li>
-          <li><span>Interest collected</span><b>{peso(coop.totalInterest)}</b></li>
-        </ul>
-      </div>
-      <div className="payout">
-        <h2>Dividend per head (projected)</h2>
-        <div className="big">{peso(coop.dividendPerHead)}</div>
-        <p>(Interest − top-borrower rebate) ÷ {coop.totalHeads} heads. Final figure is computed in December.</p>
-      </div>
-      {coop.top && (
-        <div className="section">
-          <h2>Top borrower so far</h2>
-          <ul className="rows panel">
-            <li><span>{coop.top.name}</span><b>{peso(coop.top.interest)} interest</b></li>
-            <li><span>3% rebate</span><b>{peso(coop.top.rebate)}</b></li>
-          </ul>
-        </div>
-      )}
-    </section>
-  )
-}
+import type { LoanType } from './requests'
+import { loanLimit, MONTHLY_LOANS, monthlyLoan, monthlyLoanError, monthsLeft, regularLoan, regularTerms, type Member, type MonthlyLoanType } from './rules'
 
 // Labels stay short enough for a 343px select; the conditions show under the field.
-const TYPES = {
+export const TYPES: Record<LoanType, string> = {
   regular: 'Regular (flat rate)',
   flex: 'Flex (8% a month)',
   grocery: 'Grocery – Tindamarts (5%)',
   appliance: 'Appliance / device (5%)',
   events: 'Special Events (8%)',
-} as const
-const CONDITIONS: Record<keyof typeof TYPES, string> = {
+}
+export const CONDITIONS: Record<keyof typeof TYPES, string> = {
   regular: '₱10,000–₱50,000 for 2 or 3 months; ₱20,000–₱75,000 for 6 months.',
   flex: '7% instead of 8% if paid back within 15 days.',
   grocery: 'Minimum ₱2,000.',
   appliance: 'At least 2 months. Proof of receipt required.',
   events: 'Board members only.',
 }
-type LoanType = keyof typeof TYPES
 
-export function Loans({ member }: { member: Member | null }) {
-  const [type, setType] = useState<LoanType>('regular')
+/** Months a loan of this type may run today: up to December 15 of the cycle year. */
+export function termOptions(type: LoanType, today: Date, year: number): number[] {
+  const left = monthsLeft(today, year)
+  if (type === 'regular') return [...regularTerms(left)]
+  return Array.from({ length: left }, (_, i) => i + 1).filter((n) => n >= (MONTHLY_LOANS[type].minMonths ?? 1))
+}
+
+/** One-line summary saved with a loan request, so the admin sees what the borrower was quoted. */
+export function quoteText(type: LoanType, amount: number, months: number): string {
+  if (type === 'regular') {
+    const q = regularLoan(amount, months as 2 | 3 | 6)
+    return 'error' in q ? q.error : `${peso(q.installment)} a month for ${months} months, ${peso(q.total)} total`
+  }
+  const q = monthlyLoan(amount, MONTHLY_LOANS[type].rate, months)
+  return `${peso(amount + q.paidMonthly)} total if interest is paid monthly (${months} month${months === 1 ? '' : 's'})`
+}
+
+export function Calculator({ member, year }: { member: Member | null; year: number }) {
+  const [type, setType] = useState<LoanType>('flex')
   const [amount, setAmount] = useState('20000')
-  const [months, setMonths] = useState(3)
+  const [months, setMonths] = useState(1)
   const capital = Number(amount.replace(/[^\d.]/g, '')) || 0
-  const termOptions = type === 'regular' ? [2, 3, 6] : [1, 2, 3, 4, 5, 6]
-  const term = termOptions.includes(months) ? months : termOptions[0]
+  const options = termOptions(type, new Date(), year)
+  const term = options.includes(months) ? months : options[0]
 
   return (
     <section>
@@ -75,12 +61,14 @@ export function Loans({ member }: { member: Member | null }) {
       </div>
       <div className="field">
         <label htmlFor="term">Months</label>
-        <select id="term" value={term} onChange={(e) => setMonths(Number(e.target.value))}>
-          {termOptions.map((n) => <option key={n} value={n}>{n} {n === 1 ? 'month' : 'months'}</option>)}
+        <select id="term" value={term ?? ''} onChange={(e) => setMonths(Number(e.target.value))} disabled={!options.length}>
+          {!options.length && <option value="">None left this year</option>}
+          {options.map((n) => <option key={n} value={n}>{n} {n === 1 ? 'month' : 'months'}</option>)}
         </select>
       </div>
       {member && capital > loanLimit(member.heads) && <p className="alert" role="status">That is above your {peso(loanLimit(member.heads))} limit. Board approval is needed to go higher.</p>}
-      {type === 'regular' ? <RegularQuote capital={capital} months={term as 2 | 3 | 6} /> : <MonthlyQuote type={type} capital={capital} months={term} />}
+      {!options.length ? <p className="alert" role="status">This loan can't be repaid by December 15 any more. {type === 'regular' ? 'Try a monthly-rate loan.' : 'Loans reopen next cycle.'}</p>
+        : type === 'regular' ? <RegularQuote capital={capital} months={term as 2 | 3 | 6} /> : <MonthlyQuote type={type} capital={capital} months={term} />}
     </section>
   )
 }

@@ -164,3 +164,40 @@ main {
 
 /* light surfaces get a navy focus ring; inside navy blocks it flips to cyan */
 .band :focus-visible, .payout :focus-visible { outline-color: var(--cyan); }
+
+/* ---------- v2: login, requests, admin ---------- */
+main.no-tabs { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
+.login h1 { font-size: 24px; }
+.btn.wide, .copy.wide { width: 100%; margin-top: 16px; }
+.btn:disabled, .copy:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn.danger { background: var(--red); }
+.copy.danger { border-color: var(--red); color: var(--red); }
+.success { margin-top: 14px; padding: 12px 16px; border-radius: var(--radius); background: var(--cream); color: var(--navy); border: 1px solid var(--line); }
+.alert:is(p) { margin-top: 14px; }
+.tab-icon { position: relative; display: inline-flex; }
+.badge {
+  position: absolute; top: -6px; right: -12px; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+}
+.requests { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+.request { padding: 14px 16px; border-radius: var(--radius); background: var(--cream); border: 1px solid var(--line); }
+.request-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.request-head b { color: var(--navy); }
+.stage { font-size: 13px; font-weight: 700; white-space: nowrap; color: var(--muted); }
+.stage-approved { color: var(--navy); }
+.stage-declined, .stage-withdrawn { color: var(--red); }
+.comakers { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+.co span[aria-hidden] { display: inline-block; width: 1.1em; font-weight: 700; }
+.co-approved { color: var(--navy); font-weight: 600; }
+.co-declined { color: var(--red); }
+.co-pending { color: var(--muted); }
+.asker { margin-top: 10px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.check { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-top: 14px; font-weight: 600; color: var(--navy); }
+.check input { width: 22px; height: 22px; accent-color: var(--navy); }
+.admin-flag { margin: -8px 0 12px; font-size: 13px; font-weight: 700; color: var(--red); letter-spacing: 0.08em; text-transform: uppercase; }
+.ledger { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 14px; }
+.ledger th, .ledger td { padding: 6px 8px; border-top: 1px solid var(--line); text-align: left; }
+.ledger thead th { border-top: 0; color: var(--muted); font-weight: 600; }
+.ledger input { width: 100%; min-height: 44px; padding: 0 10px; border: 1.5px solid var(--line); border-radius: 8px; background: #fff; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
