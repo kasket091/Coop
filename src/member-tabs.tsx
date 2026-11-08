@@ -122,14 +122,17 @@ export function RequestCard({ r, children }: { r: LoanRequest; children?: React.
 }
 
 function MyRequests({ mine }: { mine: LoanRequest[] }) {
+  const [error, setError] = useState<string | null>(null)
   if (!mine.length) return null
+  const withdraw = (id: string) => { setError(null); withdrawRequest(id).catch(() => setError("Couldn't withdraw. Check your connection.")) }
   return (
     <div className="section">
       <h2>My requests</h2>
+      {error && <p className="alert" role="alert">{error}</p>}
       <ul className="requests">
         {mine.map((r) => (
           <RequestCard key={r.id} r={r}>
-            {r.status === 'pending' && <button className="link" onClick={() => withdrawRequest(r.id)}>Withdraw request</button>}
+            {r.status === 'pending' && <button className="link" onClick={() => withdraw(r.id)}>Withdraw request</button>}
           </RequestCard>
         ))}
       </ul>
@@ -140,16 +143,18 @@ function MyRequests({ mine }: { mine: LoanRequest[] }) {
 // ---------- Alerts: founders approve as co-maker ----------
 export function AlertsTab({ me, asked }: { me: StoredMember; asked: LoanRequest[] }) {
   const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const waiting = asked.filter((r) => r.status === 'pending' && r.comakers[me.uid]?.status === 'pending')
   const done = asked.filter((r) => !waiting.includes(r))
   const decide = async (r: LoanRequest, s: 'approved' | 'declined') => {
-    setBusy(r.id)
-    try { await decideAsComaker(r, me.uid, s) } finally { setBusy(null) }
+    setBusy(r.id); setError(null)
+    try { await decideAsComaker(r, me.uid, s) } catch { setError("Couldn't save your answer. It may have been withdrawn, or check your connection.") } finally { setBusy(null) }
   }
   return (
     <section>
       <h1 style={{ fontSize: 22 }}>Co-maker requests</h1>
       <p className="plan">Members who asked you to vouch for their loan.</p>
+      {error && <p className="alert" role="alert">{error}</p>}
       {!waiting.length && <p className="note section">Nothing waiting for you.</p>}
       <ul className="requests">
         {waiting.map((r) => (

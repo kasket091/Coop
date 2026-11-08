@@ -5,20 +5,19 @@ import {
   signInWithEmailAndPassword, signOut, updatePassword,
 } from 'firebase/auth'
 import {
-  addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, updateDoc, where, writeBatch,
+  addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, updateDoc, where, writeBatch,
   type DocumentReference, type Unsubscribe,
 } from 'firebase/firestore'
 import { ADMIN_EMAIL, isFounderName, loginKey, normalizeName, randomMemberEmail, startingPassword } from './accounts'
 import { loadMembers } from './data'
 import { auth, db, firebaseConfig } from './firebase'
 import type { LoanRequest } from './requests'
-import { coopSummary, DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
+import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
+import { importRows, publicSummary, type Summary } from './summary'
 
-export type StoredMember = Member & { uid: string; cycle: number; createdAt: number; hasLogin: boolean; loginKey?: string; email?: string }
-export type Summary = {
-  totalHeads: number; totalSavings: number; totalInterest: number; dividendPerHead: number
-  rebate: number; topInterest: number; topBorrowerId: string | null; members: number; updatedAt: number
-}
+export type { Summary }
+/** `rebate` is this member's own top-borrower rebate (0 unless they are the top borrower). */
+export type StoredMember = Member & { uid: string; cycle: number; createdAt: number; hasLogin: boolean; loginKey?: string; email?: string; rebate?: number }
 export type Session = { kind: 'admin' } | { kind: 'member'; uid: string } | null
 
 const WRONG = 'Name or password is wrong.'
@@ -73,12 +72,13 @@ export async function listFounders(): Promise<{ id: string; name: string }[]> {
   return snap.docs.map((d) => ({ id: d.id, name: d.data().name as string })).sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** The summary as rules.ts expects it, from one member's point of view (top borrower only revealed to themselves). */
+/** The summary as rules.ts expects it, from one member's point of view: only the top borrower sees a rebate, their own. */
 export function summaryFor(s: Summary | null, me: StoredMember): CoopSummary {
+  const rebate = me.rebate ?? 0
   return {
     totalHeads: s?.totalHeads ?? 0, totalSavings: s?.totalSavings ?? 0, totalInterest: s?.totalInterest ?? 0,
     dividendPerHead: s?.dividendPerHead ?? 0,
-    top: s && s.topBorrowerId === me.uid ? { name: me.name, interest: s.topInterest, rebate: s.rebate } : null,
+    top: rebate > 0 ? { name: me.name, interest: rebate / 0.03, rebate } : null,
   }
 }
 
@@ -106,8 +106,14 @@ export function decideAsComaker(r: LoanRequest, uid: string, status: 'approved' 
 
 export const withdrawRequest = (id: string) => updateDoc(doc(db, 'loanRequests', id), { status: 'withdrawn' })
 
+/** Only a still-pending request can be decided, so a stale screen can't approve a withdrawn or declined loan. */
 export const adminDecide = (id: string, status: 'approved' | 'declined') =>
-  updateDoc(doc(db, 'loanRequests', id), { status, decidedAt: Date.now() })
+  runTransaction(db, async (tx) => {
+    const ref = doc(db, 'loanRequests', id)
+    const snap = await tx.get(ref)
+    if (snap.data()?.status !== 'pending') throw new Error('This request was already withdrawn or decided.')
+    tx.update(ref, { status, decidedAt: Date.now() })
+  })
 
 // ---------- admin ----------
 export const watchAllMembers = (cb: (m: StoredMember[]) => void) =>
@@ -131,7 +137,7 @@ async function createLogin(name: string): Promise<{ uid: string; email: string }
 
 type NewMember = { name: string; heads: number; founder: boolean; paid?: number[]; interest?: number[]; id?: number; year?: number }
 
-export async function addMember(m: NewMember): Promise<string> {
+export async function addMember(m: NewMember, recompute = true): Promise<string> {
   const name = m.name.trim().replace(/\s+/g, ' ')
   const key = await loginKey(name)
   if ((await getDoc(doc(db, 'logins', key))).exists()) throw new Error(`${name} is already a member.`)
@@ -139,12 +145,13 @@ export async function addMember(m: NewMember): Promise<string> {
   const batch = writeBatch(db)
   const record: Omit<StoredMember, 'uid'> = {
     id: m.id ?? Date.now(), name, heads: m.heads, founder: m.founder, paid: m.paid ?? zeros(), interest: m.interest ?? zeros(),
-    cycle: m.year ?? DEFAULT_CYCLE_YEAR, createdAt: Date.now(), hasLogin: true, loginKey: key, email,
+    cycle: m.year ?? DEFAULT_CYCLE_YEAR, createdAt: Date.now(), hasLogin: true, loginKey: key, email, rebate: 0,
   }
   batch.set(doc(db, 'members', uid), record)
-  batch.set(doc(db, 'logins', key), { email, memberId: uid })
+  batch.set(doc(db, 'logins', key), { email })
   if (m.founder) batch.set(doc(db, 'founders', uid), { name })
   await batch.commit()
+  if (recompute) await recomputeSummary(await allMembers())
   return uid
 }
 
@@ -154,6 +161,7 @@ export async function deleteMember(m: StoredMember): Promise<void> {
   batch.delete(doc(db, 'founders', m.uid))
   if (m.loginKey) batch.delete(doc(db, 'logins', m.loginKey))
   await batch.commit()
+  await recomputeSummary(await allMembers())
 }
 
 /** Forgotten password: a fresh sign-in account with the starting password; records and requests move with it. */
@@ -164,7 +172,7 @@ export async function resetLogin(m: StoredMember): Promise<void> {
   batch.set(doc(db, 'members', uid), { ...data, email })
   batch.delete(doc(db, 'members', m.uid))
   if (m.founder) { batch.set(doc(db, 'founders', uid), { name: m.name }); batch.delete(doc(db, 'founders', m.uid)) }
-  if (m.loginKey) batch.set(doc(db, 'logins', m.loginKey), { email, memberId: uid })
+  if (m.loginKey) batch.set(doc(db, 'logins', m.loginKey), { email })
   for (const d of (await getDocs(query(requests, where('borrowerId', '==', m.uid)))).docs) batch.update(d.ref, { borrowerId: uid })
   for (const d of (await getDocs(query(requests, where('comakerIds', 'array-contains', m.uid)))).docs) {
     const r = d.data() as LoanRequest
@@ -172,6 +180,7 @@ export async function resetLogin(m: StoredMember): Promise<void> {
     batch.update(d.ref, { comakerIds: r.comakerIds.map((id) => (id === m.uid ? uid : id)), comakers: { ...rest, [uid]: entry } })
   }
   await batch.commit()
+  await recomputeSummary(await allMembers())
 }
 
 export async function renameMember(m: StoredMember, newName: string): Promise<void> {
@@ -180,7 +189,7 @@ export async function renameMember(m: StoredMember, newName: string): Promise<vo
   if (key !== m.loginKey && (await getDoc(doc(db, 'logins', key))).exists()) throw new Error(`${name} is already a member.`)
   const batch = writeBatch(db)
   batch.update(doc(db, 'members', m.uid), { name, loginKey: key })
-  if (m.loginKey && m.email) { batch.delete(doc(db, 'logins', m.loginKey)); batch.set(doc(db, 'logins', key), { email: m.email, memberId: m.uid }) }
+  if (m.loginKey && m.email) { batch.delete(doc(db, 'logins', m.loginKey)); batch.set(doc(db, 'logins', key), { email: m.email }) }
   if (m.founder) batch.set(doc(db, 'founders', m.uid), { name })
   await batch.commit()
 }
@@ -191,34 +200,30 @@ export async function savePayments(uid: string, paid: number[], interest: number
 
 /** Members can't read each other, so the admin publishes the totals they need after every change. */
 export async function recomputeSummary(members: StoredMember[]): Promise<void> {
-  const c = coopSummary(members)
-  const top = c.top ? members.find((m) => m.name === c.top!.name) : undefined
-  const summary: Summary = {
-    totalHeads: c.totalHeads, totalSavings: c.totalSavings, totalInterest: c.totalInterest, dividendPerHead: c.dividendPerHead,
-    rebate: c.top?.rebate ?? 0, topInterest: c.top?.interest ?? 0, topBorrowerId: top?.uid ?? null,
-    members: members.filter((m) => m.heads > 0).length, updatedAt: Date.now(),
-  }
-  await setDoc(doc(db, 'coop', 'summary'), summary)
+  const { summary, rebates } = publicSummary(members)
+  const batch = writeBatch(db)
+  batch.set(doc(db, 'coop', 'summary'), summary)
+  for (const m of members) if ((m.rebate ?? 0) !== rebates[m.uid]) batch.update(doc(db, 'members', m.uid), { rebate: rebates[m.uid] })
+  await batch.commit()
 }
 
 async function allMembers(): Promise<StoredMember[]> {
   return (await getDocs(collection(db, 'members'))).docs.map((d) => ({ ...(d.data() as StoredMember), uid: d.id }))
 }
 
-/** One-time move of the 2026 sheet into Firebase. Refuses if anyone is already a member. */
+/** Moves the 2026 sheet into Firebase. Safe to run again: anyone already imported is skipped. */
 export async function importFromSheet(onProgress: (done: number, total: number) => void): Promise<number> {
-  if ((await allMembers()).length) throw new Error('Members already exist. Import only works on an empty coop.')
-  const sheet = await loadMembers()
+  const rows = importRows(await loadMembers(), (await allMembers()).map((m) => m.name))
   let done = 0
-  for (const m of sheet) {
+  for (const m of rows) {
     if (m.heads > 0) {
-      await addMember({ name: m.name, heads: m.heads, founder: isFounderName(m.name), paid: m.paid, interest: m.interest, id: m.id, year: 2026 })
+      await addMember({ name: m.name, heads: m.heads, founder: isFounderName(m.name), paid: m.paid, interest: m.interest, id: m.id, year: 2026 }, false)
     } else {
       // left the coop but their interest was collected, so it still counts toward the dividend
       const ref: DocumentReference = doc(collection(db, 'members'))
-      await setDoc(ref, { id: m.id, name: m.name, heads: 0, founder: false, paid: m.paid, interest: m.interest, cycle: 2026, createdAt: Date.now(), hasLogin: false })
+      await setDoc(ref, { id: m.id, name: m.name, heads: 0, founder: false, paid: m.paid, interest: m.interest, cycle: 2026, createdAt: Date.now(), hasLogin: false, rebate: 0 })
     }
-    onProgress(++done, sheet.length)
+    onProgress(++done, rows.length)
   }
   await setDoc(doc(db, 'settings', 'cycle'), { year: 2026 })
   await recomputeSummary(await allMembers())

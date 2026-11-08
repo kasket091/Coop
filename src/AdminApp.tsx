@@ -46,14 +46,17 @@ function Members({ members, year }: { members: StoredMember[]; year: number }) {
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
   const selected = members.find((m) => m.uid === open)
-  if (selected) return <MemberDetail m={selected} members={members} year={year} onBack={() => setOpen(null)} />
+  const back = (msg?: string) => { setOpen(null); setNotice(msg ?? null) }
+  if (selected) return <MemberDetail m={selected} members={members} year={year} onBack={back} />
   if (adding) return <AddMember year={year} onDone={() => setAdding(false)} />
   const list = members.filter((m) => m.name.toLowerCase().includes(q.trim().toLowerCase()))
   return (
     <section className="picker">
       <div className="who"><h1>Members</h1><button className="btn" onClick={() => setAdding(true)}>Add member</button></div>
       <p className="plan">{members.filter((m) => m.heads > 0).length} members · {sum(members.map((m) => m.heads))} heads</p>
+      {notice && <p className="success" role="status">{notice}</p>}
       <div className="field"><label htmlFor="mq">Search</label>
         <input id="mq" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" /></div>
       <ul className="panel">
@@ -105,7 +108,7 @@ function AddMember({ year, onDone }: { year: number; onDone: () => void }) {
   )
 }
 
-function MemberDetail({ m, members, year, onBack }: { m: StoredMember; members: StoredMember[]; year: number; onBack: () => void }) {
+function MemberDetail({ m, members, year, onBack }: { m: StoredMember; members: StoredMember[]; year: number; onBack: (notice?: string) => void }) {
   const [paid, setPaid] = useState(m.paid.map(String))
   const [interest, setInterest] = useState(m.interest.map(String))
   const [heads, setHeads] = useState(String(m.heads))
@@ -128,8 +131,8 @@ function MemberDetail({ m, members, year, onBack }: { m: StoredMember; members: 
   const act = async () => {
     setBusy(true); setMsg(null)
     try {
-      if (confirm === 'delete') { await deleteMember(m); await recomputeSummary(members.filter((x) => x.uid !== m.uid)); onBack(); return }
-      if (confirm === 'reset') { await resetLogin(m); setMsg({ ok: true, text: `Login reset. Password is now ${startingPassword(m.name)}.` }); onBack(); return }
+      if (confirm === 'delete') { await deleteMember(m); onBack(`${m.name} was deleted.`); return }
+      if (confirm === 'reset') { await resetLogin(m); onBack(`${m.name}'s login was reset. Their password is now ${startingPassword(m.name)}.`); return }
       if (confirm === 'rename') { await renameMember(m, typed); setMsg({ ok: true, text: 'Renamed. They log in with the new name.' }) }
       setConfirm(null); setTyped('')
     } catch (err) { setMsg({ ok: false, text: (err as Error).message }) } finally { setBusy(false) }
@@ -137,7 +140,7 @@ function MemberDetail({ m, members, year, onBack }: { m: StoredMember; members: 
 
   return (
     <section>
-      <MySavings m={m} coop={coop} year={year} action={<button className="link" onClick={onBack}>Back</button>} />
+      <MySavings m={m} coop={coop} year={year} action={<button className="link" onClick={() => onBack()}>Back</button>} />
       <div className="section">
         <h2>Record payments and interest</h2>
         <div className="field"><label htmlFor="eh">Heads</label><input id="eh" inputMode="numeric" value={heads} onChange={(e) => setHeads(e.target.value)} /></div>
@@ -189,13 +192,18 @@ function Confirm({ text, busy, onYes, onNo }: { text: string; busy: boolean; onY
 // ---------- loan requests ----------
 function Requests({ requests }: { requests: LoanRequest[] }) {
   const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const pending = requests.filter((r) => r.status === 'pending')
   const closed = requests.filter((r) => r.status !== 'pending')
-  const decide = async (id: string, s: 'approved' | 'declined') => { setBusy(id); try { await adminDecide(id, s) } finally { setBusy(null) } }
+  const decide = async (id: string, s: 'approved' | 'declined') => {
+    setBusy(id); setError(null)
+    try { await adminDecide(id, s) } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
+  }
   return (
     <section>
       <h1 style={{ fontSize: 22 }}>Loan requests</h1>
       <p className="plan">Approve unlocks once both co-makers have approved (✓).</p>
+      {error && <p className="alert" role="alert">{error}</p>}
       {!pending.length && <p className="note section">No pending requests.</p>}
       <ul className="requests">
         {pending.map((r) => (
@@ -230,13 +238,13 @@ function CoopAdmin({ members, summary, year }: { members: StoredMember[]; summar
     <section>
       <h1 style={{ fontSize: 22 }}>Coop {year}</h1>
       <CoopSection summary={summary} />
-      {summary && <p className="note">Top borrower: {members.find((m) => m.uid === summary.topBorrowerId)?.name ?? 'none yet'} (admin only)</p>}
+      {summary && <p className="note">Top borrower: {coopSummary(members).top?.name ?? 'none yet'} (only the admin sees this)</p>}
       <button className="copy wide section" onClick={() => run(() => recomputeSummary(members))}>Recalculate totals</button>
 
-      {members.length === 0 && year === 2026 && (
+      {year === 2026 && (
         <div className="section">
           <h2>Import the 2026 sheet</h2>
-          <p className="note">Creates every member's login and copies their savings and interest from the Google Sheet. Run once.</p>
+          <p className="note">Creates every member's login and copies their savings and interest from the Google Sheet. If it stops partway, run it again: members already imported are skipped.</p>
           <button className="btn wide" disabled={!!progress} onClick={() => run(() => importFromSheet((d, t) => setProgress(`Importing ${d} of ${t}…`)))}>
             {progress ?? 'Import from sheet'}
           </button>

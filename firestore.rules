@@ -42,8 +42,9 @@ service cloud.firestore {
       function next() { return request.resource.data; }
       function prev() { return resource.data; }
 
+      // isMember(), not signedIn(): a deleted member's old phone session loses access to requests
       allow read: if isAdmin()
-        || (signedIn() && (resource.data.borrowerId == me() || me() in resource.data.comakerIds));
+        || (isMember() && (resource.data.borrowerId == me() || me() in resource.data.comakerIds));
 
       allow create: if isMember()
         && next().keys().hasOnly(['borrowerId', 'borrowerName', 'type', 'amount', 'months', 'quote', 'comakers', 'comakerIds', 'status', 'createdAt'])
@@ -62,7 +63,7 @@ service cloud.firestore {
 
       allow update: if isAdmin()
         // a co-maker records only their own decision; declining closes the request
-        || (signedIn() && prev().status == 'pending' && me() in prev().comakerIds
+        || (isMember() && prev().status == 'pending' && me() in prev().comakerIds
             && next().diff(prev()).affectedKeys().hasOnly(['comakers', 'status'])
             && next().comakers.diff(prev().comakers).affectedKeys().hasOnly([me()])
             && next().comakers[me()].keys().hasOnly(['name', 'status', 'at'])
@@ -71,7 +72,7 @@ service cloud.firestore {
             && (next().status == 'pending'
                 || (next().status == 'declined' && next().comakers[me()].status == 'declined')))
         // the borrower can only withdraw a pending request
-        || (signedIn() && prev().status == 'pending' && prev().borrowerId == me()
+        || (isMember() && prev().status == 'pending' && prev().borrowerId == me()
             && next().diff(prev()).affectedKeys().hasOnly(['status'])
             && next().status == 'withdrawn');
 
