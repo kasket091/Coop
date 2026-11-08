@@ -13,7 +13,20 @@ export const normalizeName = (name: string) => name.trim().replace(/\s+/g, ' ').
 
 export const startingPassword = (name: string) => name.replace(/\s+/g, '')
 
-export const isFounderName = (name: string) => FOUNDERS.some((f) => normalizeName(f) === normalizeName(name))
+/** True when the typed password is the member's starting password, ignoring capitals and spaces. */
+export const looksLikeStartingPassword = (name: string, typed: string) =>
+  typed.replace(/\s+/g, '').toLowerCase() === startingPassword(name).toLowerCase()
+
+/**
+ * The exact-case starting password Firebase stored. Uses the saved spelling of the name when known;
+ * otherwise capitalises each word part (all 2026 names are written that way, e.g. "Era Tejano-Estremos").
+ */
+export function startingPasswordFor(typedName: string, savedName?: string): string {
+  const name = savedName ?? typedName.trim().toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (_, sep: string, ch: string) => sep + ch.toUpperCase())
+  return startingPassword(name)
+}
+
+export const isFounderName =(name: string) => FOUNDERS.some((f) => normalizeName(f) === normalizeName(name))
 
 /** Doc id in `logins/`: a hash, so the collection never lists names. */
 export async function loginKey(name: string): Promise<string> {

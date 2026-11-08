@@ -8,7 +8,7 @@ import {
   addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, updateDoc, where, writeBatch,
   type DocumentReference, type Unsubscribe,
 } from 'firebase/firestore'
-import { ADMIN_EMAIL, isFounderName, loginKey, normalizeName, randomMemberEmail, startingPassword } from './accounts'
+import { ADMIN_EMAIL, isFounderName, loginKey, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { loadMembers } from './data'
 import { auth, db, firebaseConfig } from './firebase'
 import type { LoanRequest } from './requests'
@@ -35,7 +35,15 @@ export async function signIn(name: string, password: string): Promise<void> {
     }
     const login = await getDoc(doc(db, 'logins', await loginKey(name)))
     if (!login.exists()) throw new Error(WRONG)
-    await signInWithEmailAndPassword(auth, login.data().email as string, password)
+    const email = login.data().email as string
+    try {
+      await signInWithEmailAndPassword(auth, email, password)
+    } catch (first) {
+      // starting passwords work in any letter case ("markdavetumanda" = "MarkDaveTumanda"); changed passwords stay exact
+      const exact = startingPasswordFor(name, login.data().name as string | undefined)
+      if (!looksLikeStartingPassword(name, password) || exact === password) throw first
+      await signInWithEmailAndPassword(auth, email, exact)
+    }
   } catch (e) {
     const code = (e as { code?: string }).code ?? ''
     if (code.includes('too-many-requests')) throw new Error('Too many tries. Wait a few minutes and try again.')
@@ -148,7 +156,7 @@ export async function addMember(m: NewMember, recompute = true): Promise<string>
     cycle: m.year ?? DEFAULT_CYCLE_YEAR, createdAt: Date.now(), hasLogin: true, loginKey: key, email, rebate: 0,
   }
   batch.set(doc(db, 'members', uid), record)
-  batch.set(doc(db, 'logins', key), { email })
+  batch.set(doc(db, 'logins', key), { email, name })
   if (m.founder) batch.set(doc(db, 'founders', uid), { name })
   await batch.commit()
   if (recompute) await recomputeSummary(await allMembers())
@@ -172,7 +180,7 @@ export async function resetLogin(m: StoredMember): Promise<void> {
   batch.set(doc(db, 'members', uid), { ...data, email })
   batch.delete(doc(db, 'members', m.uid))
   if (m.founder) { batch.set(doc(db, 'founders', uid), { name: m.name }); batch.delete(doc(db, 'founders', m.uid)) }
-  if (m.loginKey) batch.set(doc(db, 'logins', m.loginKey), { email })
+  if (m.loginKey) batch.set(doc(db, 'logins', m.loginKey), { email, name: m.name })
   for (const d of (await getDocs(query(requests, where('borrowerId', '==', m.uid)))).docs) batch.update(d.ref, { borrowerId: uid })
   for (const d of (await getDocs(query(requests, where('comakerIds', 'array-contains', m.uid)))).docs) {
     const r = d.data() as LoanRequest
@@ -189,7 +197,7 @@ export async function renameMember(m: StoredMember, newName: string): Promise<vo
   if (key !== m.loginKey && (await getDoc(doc(db, 'logins', key))).exists()) throw new Error(`${name} is already a member.`)
   const batch = writeBatch(db)
   batch.update(doc(db, 'members', m.uid), { name, loginKey: key })
-  if (m.loginKey && m.email) { batch.delete(doc(db, 'logins', m.loginKey)); batch.set(doc(db, 'logins', key), { email: m.email }) }
+  if (m.loginKey && m.email) { batch.delete(doc(db, 'logins', m.loginKey)); batch.set(doc(db, 'logins', key), { email: m.email, name }) }
   if (m.founder) batch.set(doc(db, 'founders', m.uid), { name })
   await batch.commit()
 }

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { ADMIN_EMAIL, FOUNDERS, isFounderName, loginKey, normalizeName, randomMemberEmail, startingPassword } from './accounts'
+import {
+  ADMIN_EMAIL, FOUNDERS, isFounderName, loginKey, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword,
+  startingPasswordFor,
+} from './accounts'
 
 describe('names and passwords', () => {
   it('starting password is the name with no spaces, case kept', () => {
@@ -20,6 +23,20 @@ describe('names and passwords', () => {
     expect(randomMemberEmail()).not.toBe(e)
   })
   it('admin email is fixed', () => expect(ADMIN_EMAIL).toBe('admin@hilas-coop.app'))
+})
+
+describe('starting password in any letter case', () => {
+  it('recognises the starting password typed in lowercase or with spaces', () => {
+    expect(looksLikeStartingPassword('Mark Dave Tumanda', 'markdavetumanda')).toBe(true)
+    expect(looksLikeStartingPassword('mark dave tumanda', 'Mark Dave Tumanda')).toBe(true)
+    expect(looksLikeStartingPassword('Mark Dave Tumanda', 'something-else')).toBe(false)
+  })
+  it('rebuilds the exact starting password from a typed name', () => {
+    expect(startingPasswordFor('mark dave tumanda')).toBe('MarkDaveTumanda')
+    expect(startingPasswordFor('era tejano-estremos')).toBe('EraTejano-Estremos')
+    expect(startingPasswordFor('mark dave tumanda', 'Mark Dave Tumanda')).toBe('MarkDaveTumanda')
+    expect(startingPasswordFor('juan dela cruz', 'Juan dela Cruz')).toBe('JuandelaCruz')
+  })
 })
 
 describe('founding co-makers', () => {
