@@ -63,7 +63,7 @@ export function Dashboard({ members, txns, year }: { members: StoredMember[]; tx
           <tbody>
             {savers.map((m) => (
               <tr key={m.uid}>
-                <th scope="row" className="sticky">{m.name}</th>
+                <th scope="row" className={`sticky${m.terminated ? ' gone' : ''}`}>{m.terminated ? <s title="Terminated">{m.name}</s> : m.name}</th>
                 <td>{m.heads}</td><td>{n(m.heads * 500)}</td><td>{m.terminated ? 'terminated' : c.totalHeads ? ((m.heads / c.totalHeads) * 100).toFixed(2) : ''}</td>
                 {MONTHS.map((_, i) => <td key={i} className={cls(m.uid, i)}>{savingsCell(m, i)}</td>)}
                 <td className="tot">{n(sum(m.paid))}</td>
@@ -88,7 +88,7 @@ export function Dashboard({ members, txns, year }: { members: StoredMember[]; tx
               const t = cents(sum(m.interest))
               return (
                 <tr key={m.uid} className={m.name === top ? 'top' : undefined}>
-                  <th scope="row" className="sticky">{m.name}{m.name === top ? ' ★' : ''}</th>
+                  <th scope="row" className={`sticky${m.terminated ? ' gone' : ''}`}>{m.terminated ? <s title="Terminated">{m.name}</s> : m.name}{m.name === top ? ' ★' : ''}</th>
                   {MONTHS.map((_, i) => <td key={i} className={cls(m.uid, i)}>{n(m.interest[i])}</td>)}
                   <td className="tot">{n(t)}</td><td>{n(Math.round(t * 0.03))}</td>
                 </tr>
@@ -101,7 +101,7 @@ export function Dashboard({ members, txns, year }: { members: StoredMember[]; tx
           </tfoot>
         </table>
       </div>
-      <p className="note dash-legend"><i className="swatch carry" aria-hidden="true" /> Red = carryover month: carried-over savings show in the cell but are not counted in any total; on the interest grid, interest was added to the balance · ★ top borrower: the only one who receives the 3% bonus · voided entries are not counted.</p>
+      <p className="note dash-legend"><i className="swatch carry" aria-hidden="true" /> Red = carryover month: carried-over savings show in the cell but are not counted in any total; on the interest grid, interest was added to the balance · <s>Crossed-out name</s> = terminated (heads left out of the dividend) · ★ top borrower: the only one who receives the 3% bonus · voided entries are not counted.</p>
     </section>
   )
 }

@@ -323,3 +323,6 @@ input.locked { background: var(--cream); color: var(--navy); font-weight: 700; }
 .cell.carried { background: #f4c7c3; border-color: var(--red); color: #6e1c18; }
 
 .loan-month { display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 6px; border: 1.5px solid var(--navy); color: var(--navy); font-size: 12px; font-weight: 700; vertical-align: 1px; }
+
+/* terminated members on the dashboard: name crossed out */
+.sheet th.gone s { text-decoration-thickness: 2px; text-decoration-color: var(--red); color: var(--muted); }
