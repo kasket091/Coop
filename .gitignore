@@ -5,3 +5,6 @@ dist/
 .impeccable/mocks/
 .impeccable/hook.cache.json
 *.tsbuildinfo
+.firebase/
+firebase-debug.log
+firestore-debug.log
