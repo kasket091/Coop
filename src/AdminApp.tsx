@@ -13,7 +13,7 @@ import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, markCarryover, restoreMember, terminateMember, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
+  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, recomputeSummary, renameMember, resetLogin, saveHeads, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
   type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers, setRecruiter,
@@ -212,7 +212,6 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
         <h2>Transactions</h2>
         <AddTxn m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
         <CarrySavings m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
-        <MarkCarryover m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
         {msg && <p className={msg.ok ? 'success' : 'alert'} role="status">{msg.text}</p>}
         <TxnList txns={txns} onVoid={askVoid} />
       </div>
@@ -282,41 +281,6 @@ function CarrySavings({ m, year, onDone }: { m: StoredMember; year: number; onDo
       {error && <p className="alert" role="alert">{error}</p>}
       <span className="pay-buttons">
         <button className="btn" disabled={busy || !(n > 0)}>{busy ? 'Saving…' : 'Carry over as loan'}</button>
-        <button type="button" className="copy" onClick={() => setOpen(false)}>Cancel</button>
-      </span>
-    </form>
-  )
-}
-
-/** Mark a range of months as carryover (interest added to the balance). Shows red on the dashboard. */
-function MarkCarryover({ m, year, onDone }: { m: StoredMember; year: number; onDone: (msg: string) => void }) {
-  const [open, setOpen] = useState(false)
-  const [from, setFrom] = useState(ledgerMonth(year))
-  const [to, setTo] = useState(ledgerMonth(year))
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  if (!open) return <button className="btn-mini carry-open" onClick={() => setOpen(true)}>Mark carryover months</button>
-  const submit = async (e: FormEvent) => {
-    e.preventDefault()
-    setBusy(true); setError(null)
-    try {
-      await markCarryover(m, from, to, '', year)
-      onDone(`Marked ${MONTHS[Math.min(from, to)]}–${MONTHS[Math.max(from, to)]} as carryover for ${m.name}.`); setOpen(false)
-    } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(false) }
-  }
-  return (
-    <form className="add-txn" onSubmit={submit}>
-      <b className="carry-title">Mark carryover months</b>
-      <div className="add-txn-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <div className="field"><label htmlFor="cf">From</label>
-          <select id="cf" value={from} onChange={(e) => setFrom(Number(e.target.value))}>{MONTHS.map((mo, i) => <option key={mo} value={i}>{mo}</option>)}</select></div>
-        <div className="field"><label htmlFor="ct">To</label>
-          <select id="ct" value={to} onChange={(e) => setTo(Number(e.target.value))}>{MONTHS.map((mo, i) => <option key={mo} value={i}>{mo}</option>)}</select></div>
-      </div>
-      <p className="note" style={{ marginTop: 0 }}>Records the months only (no money). They show red on the Dashboard; void one to undo it.</p>
-      {error && <p className="alert" role="alert">{error}</p>}
-      <span className="pay-buttons">
-        <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Mark as carryover'}</button>
         <button type="button" className="copy" onClick={() => setOpen(false)}>Cancel</button>
       </span>
     </form>

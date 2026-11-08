@@ -522,15 +522,6 @@ export async function restoreMember(m: StoredMember, year: number) {
   await batch.commit()
 }
 
-/** Marks months where a member's interest was carried over (e.g. from the old sheet). Red on the dashboard; voidable. */
-export async function markCarryover(m: StoredMember, from: number, to: number, note: string, year: number) {
-  const now = Date.now()
-  await commitChunks(monthRange(from, to).map((month, i) => (b) => b.set(doc(txns), txnRecord({
-    memberId: m.uid, memberName: m.name, kind: 'note', amount: 0, month, carryover: true,
-    note: note || 'Carryover (interest added to the balance)',
-  }, year, now + i))))
-}
-
 /** The member's unpaid balance from the old Borrowers sheet: typed by the admin, every change logged. */
 export async function saveSheetLoanBalance(m: StoredMember, amount: number, year: number) {
   const batch = writeBatch(db)
