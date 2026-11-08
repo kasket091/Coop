@@ -33,6 +33,12 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // money history: each member reads only their own; only the admin writes
+    match /transactions/{id} {
+      allow read: if isAdmin() || (isMember() && resource.data.memberId == me());
+      allow write: if isAdmin();
+    }
+
     match /members/{uid} {
       allow read: if isAdmin() || (signedIn() && me() == uid);
       allow write: if isAdmin();
@@ -46,20 +52,30 @@ service cloud.firestore {
       allow read: if isAdmin()
         || (isMember() && (resource.data.borrowerId == me() || me() in resource.data.comakerIds));
 
+      function meDoc() { return get(/databases/$(database)/documents/members/$(me())).data; }
+      function ids() { return next().comakerIds; }
+      function notAdminMember(id) { return get(/databases/$(database)/documents/founders/$(id)).data.name != 'Bryan Kevin Tabuan'; }
+      // co-maker shapes (v3): none (deposit loan, or a founder within limit), the borrower's recruiter, or 2 founders (not Bryan)
+      function validComakers() {
+        return (ids().size() == 0 && (next().type == 'deposit' || isFounder(me())))
+          || (ids().size() == 1 && ids()[0] == meDoc().recruiterId
+              && next().comakers[ids()[0]].status == 'pending')
+          || (ids().size() == 2 && ids()[0] != ids()[1] && !(me() in ids())
+              && isFounder(ids()[0]) && isFounder(ids()[1]) && notAdminMember(ids()[0]) && notAdminMember(ids()[1])
+              && next().comakers[ids()[0]].status == 'pending' && next().comakers[ids()[1]].status == 'pending');
+      }
+
       allow create: if isMember()
-        && next().keys().hasOnly(['borrowerId', 'borrowerName', 'type', 'amount', 'months', 'quote', 'comakers', 'comakerIds', 'status', 'createdAt'])
+        && next().keys().hasOnly(['borrowerId', 'borrowerName', 'type', 'amount', 'months', 'quote', 'comakers', 'comakerIds', 'status', 'createdAt', 'overLimit'])
         && next().borrowerId == me()
-        && next().borrowerName == get(/databases/$(database)/documents/members/$(me())).data.name
+        && next().borrowerName == meDoc().name
         && next().status == 'pending'
+        && next().type in ['regular', 'flex', 'grocery', 'appliance', 'events', 'deposit']
         && next().amount is number && next().amount > 0
         && next().months is int && next().months > 0
-        && next().comakerIds is list && next().comakerIds.size() == 2
-        && next().comakerIds[0] != next().comakerIds[1]
-        && !(me() in next().comakerIds)
-        && isFounder(next().comakerIds[0]) && isFounder(next().comakerIds[1])
-        && next().comakers.keys().hasOnly(next().comakerIds) && next().comakers.size() == 2
-        && next().comakers[next().comakerIds[0]].status == 'pending'
-        && next().comakers[next().comakerIds[1]].status == 'pending';
+        && next().comakerIds is list && next().comakerIds.size() <= 2
+        && next().comakers.keys().hasOnly(ids()) && next().comakers.size() == ids().size()
+        && validComakers();
 
       allow update: if isAdmin()
         // a co-maker records only their own decision; declining closes the request

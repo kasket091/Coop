@@ -5,19 +5,26 @@ import {
   signInWithEmailAndPassword, signOut, updatePassword,
 } from 'firebase/auth'
 import {
-  addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, updateDoc, where, writeBatch,
-  type DocumentReference, type Unsubscribe,
+  addDoc, collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, updateDoc, where, writeBatch,
+  type DocumentReference, type Transaction, type Unsubscribe,
 } from 'firebase/firestore'
-import { ADMIN_EMAIL, isFounderName, loginKey, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
+import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { loadMembers } from './data'
 import { auth, db, firebaseConfig } from './firebase'
-import { carryover, customPayment, payInterest, settleInterest, type LoanRequest } from './requests'
+import { ledgerFrom, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
+import { balanceOf, carryover, customPayment, loanSnapshot, monthInterest, payInterest, principalOf, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 
 export type { Summary }
 /** `rebate` is this member's own top-borrower rebate (0 unless they are the top borrower). */
-export type StoredMember = Member & { uid: string; cycle: number; createdAt: number; hasLogin: boolean; loginKey?: string; email?: string; rebate?: number; sheetLoanBalance?: number }
+export type StoredMember = Member & {
+  uid: string; cycle: number; createdAt: number; hasLogin: boolean; loginKey?: string; email?: string; rebate?: number
+  sheetLoanBalance?: number
+  /** uid of the board member who recruited them (their co-maker) */
+  recruiterId?: string
+}
+export type { Txn }
 export type Session = { kind: 'admin' } | { kind: 'member'; uid: string } | null
 
 const WRONG = 'Name or password is wrong.'
@@ -114,67 +121,156 @@ export function decideAsComaker(r: LoanRequest, uid: string, status: 'approved' 
 
 export const withdrawRequest = (id: string) => updateDoc(doc(db, 'loanRequests', id), { status: 'withdrawn' })
 
-/** Only a still-pending request can be decided, so a stale screen can't approve a withdrawn or declined loan. */
-export const adminDecide = (id: string, status: 'approved' | 'declined', direct = false) =>
-  runTransaction(db, async (tx) => {
-    const ref = doc(db, 'loanRequests', id)
-    const snap = await tx.get(ref)
-    if (snap.data()?.status !== 'pending') throw new Error('This request was already withdrawn or decided.')
-    tx.update(ref, { status, decidedAt: Date.now(), ...(direct ? { directApproval: true } : {}) })
-  })
-
 /** Ledger month for money received today (clamped to the cycle). */
-const ledgerMonth = (year: number, today = new Date()) =>
+export const ledgerMonth = (year: number, today = new Date()) =>
   today.getFullYear() < year ? 0 : today.getFullYear() > year ? 11 : today.getMonth()
 
+// ---------- transactions ----------
+const txns = collection(db, 'transactions')
+const asTxns = (docs: { id: string; data: () => unknown }[]) =>
+  docs.map((d) => ({ ...(d.data() as Txn), id: d.id })).sort((a, b) => b.createdAt - a.createdAt)
+
+export const watchMyTransactions = (uid: string, cb: (t: Txn[]) => void) =>
+  onSnapshot(query(txns, where('memberId', '==', uid)), (s) => cb(asTxns(s.docs)))
+
+export const watchAllTransactions = (cb: (t: Txn[]) => void) => onSnapshot(txns, (s) => cb(asTxns(s.docs)))
+
+type NewTxn = Omit<Txn, 'id' | 'createdAt' | 'cycle' | 'month'> & { month?: number }
+const txnRecord = (t: NewTxn, year: number, createdAt: number) =>
+  Object.fromEntries(Object.entries({ ...t, month: t.month ?? ledgerMonth(year), cycle: year, createdAt }).filter(([, v]) => v !== undefined))
+
+/** Rebuilds a member's 12-month savings/interest from their live transactions, then the coop totals. */
+export async function rebuildLedger(memberId: string, year: number): Promise<void> {
+  const mine = asTxns((await getDocs(query(txns, where('memberId', '==', memberId)))).docs)
+  const { paid, interest } = ledgerFrom(mine, year)
+  await updateDoc(doc(db, 'members', memberId), { paid, interest })
+  await recomputeSummary(await allMembers())
+}
+
+/** Admin records savings or interest received (not tied to a loan). */
+export async function addTransaction(m: StoredMember, kind: 'savings' | 'interest', amount: number, month: number, note: string, year: number) {
+  if (!(amount > 0)) throw new Error('Enter an amount above ₱0.')
+  await setDoc(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind, amount, month, note }, year, Date.now()))
+  await rebuildLedger(m.uid, year)
+}
+
 /**
- * Admin loan actions on an approved loan. Interest the borrower actually pays goes into their monthly
- * interest record (so it counts toward the dividend); carried-over interest is only counted once it is paid.
+ * Voids a transaction (it stays visible, crossed out). A loan transaction can only be voided while it is that
+ * loan's newest, and voiding puts the loan back exactly as it was before (a voided approval returns to pending).
  */
-async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number>; collected: number }) {
+export async function voidTransaction(t: Txn, reason: string, year: number): Promise<void> {
+  if (!reason.trim()) throw new Error('Give a reason for voiding.')
+  const group = [t]
+  if (t.loanId) {
+    const loanTxns = asTxns((await getDocs(query(txns, where('loanId', '==', t.loanId)))).docs)
+    const newest = newestLiveForLoan(loanTxns, t.loanId)
+    if (newest && newest.createdAt !== t.createdAt) throw new Error('Void the newer entries for this loan first.')
+    group.splice(0, 1, ...loanTxns.filter((x) => !x.voidedAt && x.createdAt === t.createdAt))
+  }
+  await runTransaction(db, async (tx) => {
+    const before = group.find((x) => x.loanBefore)?.loanBefore
+    if (t.loanId && before) restoreLoan(tx, t.loanId, before)
+    for (const x of group) tx.update(doc(db, 'transactions', x.id), { voidedAt: Date.now(), voidReason: reason.trim() })
+  })
+  await rebuildLedger(t.memberId, year)
+}
+
+function restoreLoan(tx: Transaction, loanId: string, b: LoanSnapshot) {
+  tx.update(doc(db, 'loanRequests', loanId), {
+    status: b.status, balance: b.balance, principal: b.principal,
+    carryovers: b.carryovers, interestPayments: b.interestPayments, customPayments: b.customPayments,
+    paidAt: b.paidAt ?? deleteField(), decidedAt: b.decidedAt ?? deleteField(),
+    ...(b.status === 'pending' ? { directApproval: deleteField() } : {}),
+  })
+}
+
+/** Only a still-pending request can be decided. Approving records the loan going out (`release`). */
+export async function adminDecide(id: string, status: 'approved' | 'declined', year: number, direct = false) {
+  let memberId = ''
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
     const snap = await tx.get(ref)
     const r = { ...(snap.data() as LoanRequest), id }
-    if (r.status !== 'approved') throw new Error('This loan is no longer open.')
-    const { update, collected } = act(r)
-    const memberRef = doc(db, 'members', r.borrowerId)
-    const member = collected > 0 ? await tx.get(memberRef) : null
-    tx.update(ref, update)
-    if (member?.exists()) {
-      const interest = [...(member.data().interest as number[])]
-      interest[ledgerMonth(year)] = Math.round((interest[ledgerMonth(year)] + collected) * 100) / 100
-      tx.update(memberRef, { interest })
+    if (r.status !== 'pending') throw new Error('This request was already withdrawn or decided.')
+    const now = Date.now()
+    tx.update(ref, { status, decidedAt: now, ...(direct ? { directApproval: true } : {}), ...(status === 'approved' ? { balance: r.amount, principal: r.amount } : {}) })
+    if (status === 'approved') {
+      memberId = r.borrowerId
+      tx.set(doc(txns), txnRecord({
+        memberId: r.borrowerId, memberName: r.borrowerName, kind: 'release', amount: r.amount, loanId: id,
+        note: `Loan approved${direct ? ' directly by the admin' : ''}`, loanBefore: loanSnapshot(r),
+      }, year, now))
     }
   })
-  await recomputeSummary(await allMembers())
+  if (memberId) await rebuildLedger(memberId, year)
 }
 
-/** Fully paid: closes the loan; any carried-over interest in the balance is recorded as interest collected. */
+/**
+ * Admin loan actions on an approved loan. Each writes its transactions (with the loan as it was before, so it
+ * can be voided) and updates the loan. Interest actually paid counts toward the dividend; carried interest
+ * only once it is paid.
+ */
+async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number>; entries: { kind: TxnKind; amount: number; note: string }[] }) {
+  let memberId = ''
+  await runTransaction(db, async (tx) => {
+    const ref = doc(db, 'loanRequests', id)
+    const r = { ...((await tx.get(ref)).data() as LoanRequest), id }
+    if (r.status !== 'approved') throw new Error('This loan is no longer open.')
+    const { update, entries } = act(r)
+    const now = Date.now()
+    tx.update(ref, update)
+    for (const e of entries) {
+      tx.set(doc(txns), txnRecord({ memberId: r.borrowerId, memberName: r.borrowerName, loanId: id, loanBefore: loanSnapshot(r), ...e }, year, now))
+    }
+    memberId = r.borrowerId
+  })
+  await rebuildLedger(memberId, year)
+}
+
+const php = (n: number) => `₱${n.toLocaleString('en-PH', { maximumFractionDigits: 2 })}`
+
+/** Fully paid: closes the loan; carried-over (or a regular loan's flat) interest is recorded as collected. */
 export const markLoanPaid = (id: string, year: number) =>
-  loanAction(id, year, (r) => ({ update: { status: 'paid', paidAt: Date.now() }, collected: settleInterest(r) }))
+  loanAction(id, year, (r) => {
+    const interest = settleInterest(r)
+    const principal = Math.round(principalOf(r) * 100) / 100
+    return {
+      update: { status: 'paid', paidAt: Date.now() },
+      entries: [
+        ...(interest > 0 ? [{ kind: 'interest' as const, amount: interest, note: 'Interest collected when the loan was paid off' }] : []),
+        { kind: 'principal', amount: principal, note: 'Loan paid in full' },
+      ],
+    }
+  })
 
 /** The borrower paid this month's interest only; the balance stays. */
 export const payLoanInterest = (id: string, year: number) =>
-  loanAction(id, year, (r) => { const p = payInterest(r); return { update: p.update, collected: p.collected } })
+  loanAction(id, year, (r) => {
+    const p = payInterest(r)
+    return { update: p.update, entries: [{ kind: 'interest', amount: p.collected, note: `This month's interest on ${php(balanceOf(r))}` }] }
+  })
 
 /** Any amount paid this month: interest first, then carried-over interest, then the amount borrowed. */
 export const loanCustomPayment = (id: string, year: number, amount: number) =>
   loanAction(id, year, (r) => {
     const p = customPayment(r, amount)
     if ('error' in p) throw new Error(p.error)
+    const toPrincipal = Math.round((amount - p.collected) * 100) / 100
     return {
-      collected: p.collected,
-      update: {
-        balance: p.balance, principal: p.principal, customPayments: (r.customPayments ?? 0) + 1,
-        ...(p.paidOff ? { status: 'paid', paidAt: Date.now() } : {}),
-      },
+      update: { balance: p.balance, principal: p.principal, customPayments: (r.customPayments ?? 0) + 1, ...(p.paidOff ? { status: 'paid', paidAt: Date.now() } : {}) },
+      entries: [
+        ...(p.collected > 0 ? [{ kind: 'interest' as const, amount: p.collected, note: `Custom payment of ${php(amount)}: interest part` }] : []),
+        ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, note: `Custom payment of ${php(amount)}: off the balance` }] : []),
+      ],
     }
   })
 
 /** Interest not paid: it is added to the balance and next month is charged on the new balance. */
 export const carryOverLoan = (id: string, year: number) =>
-  loanAction(id, year, (r) => ({ update: carryover(r), collected: 0 }))
+  loanAction(id, year, (r) => ({
+    update: carryover(r),
+    entries: [{ kind: 'note', amount: 0, note: `Carryover: ${php(monthInterest(r))} interest added; balance now ${php(balanceOf(r) + monthInterest(r))}` }],
+  }))
 
 // ---------- admin ----------
 export const watchAllMembers = (cb: (m: StoredMember[]) => void) =>
@@ -255,11 +351,78 @@ export async function renameMember(m: StoredMember, newName: string): Promise<vo
   await batch.commit()
 }
 
-/** The member's unpaid balance carried over from the old Borrowers sheet, typed by the admin. */
-export const saveSheetLoanBalance = (uid: string, amount: number) => updateDoc(doc(db, 'members', uid), { sheetLoanBalance: amount })
+/** The member's unpaid balance from the old Borrowers sheet: typed by the admin, every change logged. */
+export async function saveSheetLoanBalance(m: StoredMember, amount: number, year: number) {
+  const batch = writeBatch(db)
+  batch.update(doc(db, 'members', m.uid), { sheetLoanBalance: amount })
+  batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0,
+    note: `Old sheet loan balance changed ${php(m.sheetLoanBalance ?? 0)} → ${php(amount)}` }, year, Date.now()))
+  await batch.commit()
+}
 
-export async function savePayments(uid: string, paid: number[], interest: number[], heads: number): Promise<void> {
-  await updateDoc(doc(db, 'members', uid), { paid, interest, heads })
+export const saveHeads = (uid: string, heads: number) => updateDoc(doc(db, 'members', uid), { heads })
+
+// ---------- one-time switch to transactions (v3) ----------
+export type ResyncRow = { name: string; isNew: boolean; savingsNow: number; savingsSheet: number; interestNow: number; interestSheet: number }
+
+export const watchMigrated = (cb: (done: boolean) => void) =>
+  onSnapshot(doc(db, 'settings', 'migration'), (s) => cb(!!s.data()?.v3))
+
+const sumOf = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) * 100) / 100
+
+/** What the re-sync would change, per member (app now → sheet). */
+export async function previewResync(): Promise<ResyncRow[]> {
+  const [sheet, members] = [await loadMembers(), await allMembers()]
+  return sheet.map((row) => {
+    const m = members.find((x) => normalizeName(x.name) === normalizeName(row.name))
+    return { name: row.name, isNew: !m, savingsNow: sumOf(m?.paid ?? []), savingsSheet: sumOf(row.paid), interestNow: sumOf(m?.interest ?? []), interestSheet: sumOf(row.interest) }
+  })
+}
+
+/**
+ * Turns the current sheet into opening transactions ("From the 2026 sheet"), adds anyone new, sets recruiters and
+ * board members, rebuilds every ledger, and records that it ran. Runs once.
+ */
+export async function runResync(onProgress: (msg: string) => void): Promise<void> {
+  const year = 2026
+  if ((await getDoc(doc(db, 'settings', 'migration'))).data()?.v3) throw new Error('The re-sync already ran.')
+  const sheet = await loadMembers()
+  for (const row of importRows(sheet, (await allMembers()).map((m) => m.name))) {
+    onProgress(`Adding ${row.name}…`)
+    if (row.heads > 0) await addMember({ name: row.name, heads: row.heads, founder: isBoardName(row.name), id: row.id, year }, false)
+  }
+  const members = await allMembers()
+  const byName = (n: string) => members.find((m) => normalizeName(m.name) === normalizeName(n))
+  const writes: { ref: DocumentReference; data: Record<string, unknown> }[] = []
+  const now = Date.now()
+  for (const row of sheet) {
+    const m = byName(row.name)
+    if (!m) continue
+    row.paid.forEach((amount, month) => { if (amount > 0) writes.push({ ref: doc(txns), data: txnRecord({ memberId: m.uid, memberName: m.name, kind: 'savings', amount, month, note: 'From the 2026 sheet' }, year, now) }) })
+    row.interest.forEach((amount, month) => { if (amount > 0) writes.push({ ref: doc(txns), data: txnRecord({ memberId: m.uid, memberName: m.name, kind: 'interest', amount, month, note: 'From the 2026 sheet' }, year, now) }) })
+  }
+  for (const m of members) {
+    const recruiter = recruiterOf(m.name)
+    const board = isBoardName(m.name)
+    writes.push({ ref: doc(db, 'members', m.uid), data: { founder: board, ...(recruiter ? { recruiterId: byName(recruiter)?.uid ?? deleteField() } : {}) } })
+    if (board) writes.push({ ref: doc(db, 'founders', m.uid), data: { name: m.name } })
+  }
+  for (let i = 0; i < writes.length; i += 400) {
+    onProgress(`Saving ${Math.min(i + 400, writes.length)} of ${writes.length}…`)
+    const batch = writeBatch(db)
+    writes.slice(i, i + 400).forEach((w) => batch.set(w.ref, w.data, { merge: true }))
+    await batch.commit()
+  }
+  onProgress('Rebuilding every member\'s totals…')
+  const all = asTxns((await getDocs(txns)).docs)
+  const batch = writeBatch(db)
+  for (const m of members) {
+    const { paid, interest } = ledgerFrom(all.filter((t) => t.memberId === m.uid), year)
+    batch.update(doc(db, 'members', m.uid), { paid, interest })
+  }
+  batch.set(doc(db, 'settings', 'migration'), { v3: Date.now() })
+  await batch.commit()
+  await recomputeSummary(await allMembers())
 }
 
 /** Members can't read each other, so the admin publishes the totals they need after every change. */
@@ -296,7 +459,7 @@ export async function importFromSheet(onProgress: (done: number, total: number) 
 
 /** New yearly cycle: clears members, logins, founders and loan requests, then sets the year. */
 export async function startCycle(year: number): Promise<void> {
-  for (const name of ['members', 'founders', 'logins', 'loanRequests']) {
+  for (const name of ['members', 'founders', 'logins', 'loanRequests', 'transactions']) {
     const docs = (await getDocs(collection(db, name))).docs
     for (let i = 0; i < docs.length; i += 400) {
       const batch = writeBatch(db)
