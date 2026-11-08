@@ -5,10 +5,11 @@ it('every loan type has a 2-letter reference code', () => {
   expect(LOAN_CODE).toEqual({ flex: 'FL', savings: 'SL', regular: 'RL', grocery: 'GL', appliance: 'AL', events: 'HL', deposit: 'DL' })
 })
 
-it('references count per type, plus one running number across all loans', () => {
-  expect(nextRef({}, 'savings')).toEqual({ ref: '1SL', no: 1, counters: { SL: 1, ALL: 1 } })
-  expect(nextRef({ SL: 1, FL: 4, ALL: 11 }, 'savings')).toEqual({ ref: '2SL', no: 12, counters: { SL: 2, FL: 4, ALL: 12 } })
-  expect(nextRef({ SL: 1, FL: 4, ALL: 13 }, 'flex')).toMatchObject({ ref: '5FL', no: 14 })
+it("references: the member's own loan count + type, and the coop-wide loan number", () => {
+  expect(nextRef({}, 'savings', 'ma')).toEqual({ ref: '1SL', no: 1, counters: { ALL: 1, M_ma: 1 } })
+  const c = { ALL: 13, M_ma: 12, M_ev: 1 }
+  expect(nextRef(c, 'savings', 'ma')).toEqual({ ref: '13SL', no: 14, counters: { ALL: 14, M_ma: 13, M_ev: 1 } })
+  expect(nextRef(c, 'flex', 'ev')).toMatchObject({ ref: '2FL', no: 14 })
 })
 
 it('a loan reads as its type reference and running number', () => {

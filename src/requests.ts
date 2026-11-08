@@ -187,12 +187,14 @@ export const LOAN_CODE: Record<LoanType, string> = {
   flex: 'FL', savings: 'SL', regular: 'RL', grocery: 'GL', appliance: 'AL', events: 'HL', deposit: 'DL',
 }
 
-/** The next reference for a loan type, counted coop-wide per type: 1SL, 2SL, … */
-export function nextRef(counters: Record<string, number>, type: LoanType) {
-  const code = LOAN_CODE[type]
-  const n = (counters[code] ?? 0) + 1
-  const no = (counters.ALL ?? 0) + 1 // one running number across every loan: #1, #2, …
-  return { ref: `${n}${code}`, no, counters: { ...counters, [code]: n, ALL: no } }
+/**
+ * The next loan reference for a member, e.g. 13SL #14: the member's 13th loan this cycle, a Savings Loan, and the
+ * coop's 14th approved loan this cycle. Both counts start again at 1 each cycle (the counters doc is per cycle).
+ */
+export function nextRef(counters: Record<string, number>, type: LoanType, memberId: string) {
+  const mine = (counters[`M_${memberId}`] ?? 0) + 1
+  const no = (counters.ALL ?? 0) + 1
+  return { ref: `${mine}${LOAN_CODE[type]}`, no, counters: { ...counters, ALL: no, [`M_${memberId}`]: mine } }
 }
 
 /** How a loan is named everywhere: "1SL #12". */

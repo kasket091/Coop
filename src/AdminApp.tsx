@@ -12,7 +12,7 @@ import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, addTransaction, adminDecide, assignMissingRefs, carryOverSavings, fixSavingsLoans, markCarryover, restoreMember, terminateMember, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
+  addMember, addTransaction, adminDecide, ensureRefs, carryOverSavings, fixSavingsLoans, markCarryover, restoreMember, terminateMember, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, previewResync, recomputeSummary, renameMember, resetLogin, runResync, saveHeads, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchMigrated, watchSummary,
   type ResyncRow, type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers,
@@ -144,9 +144,9 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
   const flagReason = flag ? `3 carryover months in a row (${flag.months.map((i) => MONTHS[i]).join(', ')}) and ${MONTHS[flag.fourth]} not paid.` : ''
   const unpaidTotal = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0).total
   const terminate = async () => {
-    const reason = window.prompt(`Terminate ${m.name}? Loans and the projected dividend are disabled. Reason:`, flagReason || '')
+    const reason = window.prompt(`Terminate ${m.name}? Their savings (less the 20% fee) will pay their unpaid loans, which then close. Loans and the projected dividend are disabled. Reason:`, flagReason || '')
     if (!reason) return
-    try { await terminateMember(m, reason, year); setMsg({ ok: true, text: `${m.name} is terminated.` }) } catch (err) { setMsg({ ok: false, text: (err as Error).message }) }
+    try { await terminateMember(m, reason, year, requests); setMsg({ ok: true, text: `${m.name} is terminated. Their loans were paid from savings.` }) } catch (err) { setMsg({ ok: false, text: (err as Error).message }) }
   }
   const restore = async () => {
     if (!window.confirm(`Restore ${m.name}'s account? Loans and the dividend come back.`)) return
@@ -181,7 +181,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
   return (
     <section>
       <MySavings m={m} coop={coop} year={year} action={<button className="link" onClick={() => onBack()}>Back</button>}
-        termination={m.terminated ? { reason: m.terminated.reason, unpaid: unpaidTotal } : undefined}
+        termination={m.terminated ? { ...m.terminated, unpaid: unpaidTotal } : undefined}
         extra={<>
           {m.terminated
             ? <p className="alert" role="status">Terminated {new Date(m.terminated.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}. <button className="link inline" onClick={restore}>Restore account</button></p>
@@ -509,7 +509,8 @@ function Requests({ requests, year }: { requests: LoanRequest[]; year: number })
 function LoansAdmin({ requests, members, year }: { requests: LoanRequest[]; members: StoredMember[]; year: number }) {
   const [view, setView] = useState<'active' | 'closed'>('active')
   // loans approved before references existed get theirs (1FL, 2FL, …) the first time this tab opens
-  useEffect(() => { if (requests.some((r) => (!r.ref || !r.no) && (r.status === 'approved' || r.status === 'paid'))) assignMissingRefs().catch(() => {}) }, [requests])
+  // loan references for this cycle (13SL #14): numbers every loan once under the scheme, then only new ones
+  useEffect(() => { ensureRefs(year).catch(() => {}) }, [requests, year])
   // Savings Loans from before the 10% was added upfront: corrected once (also stops their carried savings counting)
   useEffect(() => { if (requests.some((r) => r.type === 'savings' && r.status === 'approved' && !r.upfront)) fixSavingsLoans(year).catch(() => {}) }, [requests, year])
   const active = requests.filter((r) => r.status === 'approved')

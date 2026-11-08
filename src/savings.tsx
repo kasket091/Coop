@@ -8,8 +8,8 @@ import { terminationPayout } from './termination'
 /** One member's locked year. Used by the member's Savings tab and the admin's member view. */
 export function MySavings({ m, coop, year, action, extra, termination }: {
   m: Member; coop: CoopSummary; year: number; action?: ReactNode; extra?: ReactNode
-  /** set when the account is terminated: the reason and the member's unpaid loans */
-  termination?: { reason: string; unpaid: number }
+  /** set when the account is terminated: the reason, the figures saved at termination, and any loans still owed */
+  termination?: { reason: string; unpaid: number; saved?: number; fee?: number; loansDeducted?: number; payout?: number; stillOwed?: number }
 }) {
   const today = new Date()
   const s = memberSummary(m, coop, today, year)
@@ -67,7 +67,7 @@ export function MySavings({ m, coop, year, action, extra, termination }: {
         </ul>
       </div>
 
-      {termination ? <TerminationCard saved={s.saved} {...termination} /> : <div className="payout">
+      {termination ? <TerminationCard live={s.saved} {...termination} /> : <div className="payout">
         <h2>December payout (projected)</h2>
         <div className="big">{peso(s.payout)}</div>
         <p>{peso(s.target)} savings + {peso(s.dividend)} dividend{s.rebate > 0 ? ` + ${peso(s.rebate)} top-borrower rebate` : ''}</p>
@@ -77,8 +77,13 @@ export function MySavings({ m, coop, year, action, extra, termination }: {
   )
 }
 
-function TerminationCard({ saved, reason, unpaid }: { saved: number; reason: string; unpaid: number }) {
-  const t = terminationPayout(saved, unpaid)
+function TerminationCard({ live, reason, unpaid, ...frozen }: {
+  live: number; reason: string; unpaid: number; saved?: number; fee?: number; loansDeducted?: number; payout?: number; stillOwed?: number
+}) {
+  // the figures saved at termination (loans were then paid and closed); older terminations are worked out live
+  const t = frozen.payout !== undefined
+    ? { saved: frozen.saved ?? live, fee: frozen.fee ?? 0, loansDeducted: frozen.loansDeducted ?? 0, payout: frozen.payout, stillOwed: frozen.stillOwed ?? unpaid }
+    : terminationPayout(live, unpaid)
   return (
     <div className="terminated">
       <h2>Account terminated</h2>
@@ -86,7 +91,7 @@ function TerminationCard({ saved, reason, unpaid }: { saved: number; reason: str
       <ul className="rows">
         <li><span>Total savings</span><b>{peso(t.saved)}</b></li>
         <li><span>Less 20% termination fee</span><b>−{peso(t.fee)}</b></li>
-        <li><span>Less unpaid loans (taken automatically)</span><b>−{peso(t.loansDeducted)}</b></li>
+        <li><span>Less unpaid loans (paid from savings, now closed)</span><b>−{peso(t.loansDeducted)}</b></li>
         <li className="final"><span>Termination payout</span><b>{peso(t.payout)}</b></li>
         {t.stillOwed > 0 && <li className="owed"><span>Still owed to the coop</span><b>{peso(t.stillOwed)}</b></li>}
       </ul>

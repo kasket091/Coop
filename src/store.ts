@@ -15,6 +15,7 @@ import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } fro
 import { balanceOf, carryover, customPayment, loanSnapshot, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
+import { payFromSavings } from './termination'
 
 export type { Summary }
 /** `rebate` is this member's own top-borrower rebate (0 unless they are the top borrower). */
@@ -24,7 +25,7 @@ export type StoredMember = Member & {
   /** uid of the board member who recruited them (their co-maker) */
   recruiterId?: string
   /** set by the admin: 3 carryover months in a row, then a 4th unpaid. Disables loans and the projected dividend. */
-  terminated?: { at: number; reason: string }
+  terminated?: { at: number; reason: string; saved?: number; fee?: number; loansDeducted?: number; payout?: number; stillOwed?: number }
 }
 export type { Txn }
 export type Session = { kind: 'admin' } | { kind: 'member'; uid: string } | null
@@ -208,12 +209,12 @@ export async function adminDecide(id: string, status: 'approved' | 'declined', y
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
     const snap = await tx.get(ref)
-    const counterRef = doc(db, 'counters', 'loans')
+    const counterRef = doc(db, 'counters', `loans-${year}`)
     const counters = (await tx.get(counterRef)).data() ?? {}
     const r = { ...(snap.data() as LoanRequest), id }
     if (r.status !== 'pending') throw new Error('This request was already withdrawn or decided.')
     const now = Date.now()
-    const next = status === 'approved' && !r.ref ? nextRef(counters, r.type) : null
+    const next = status === 'approved' && !r.ref ? nextRef(counters, r.type, r.borrowerId) : null
     if (next) tx.set(counterRef, next.counters)
     tx.update(ref, { status, decidedAt: now, ...(direct ? { directApproval: true } : {}), ...(next ? { ref: next.ref, no: next.no } : {}),
       ...(status === 'approved' ? { balance: r.amount, principal: r.amount } : {}) })
@@ -399,8 +400,8 @@ export async function carryOverSavings(m: StoredMember, month: number, amount: n
   await requireMigrated()
   let loanRef = ''
   await runTransaction(db, async (tx) => {
-    const counterRef = doc(db, 'counters', 'loans')
-    const next = nextRef((await tx.get(counterRef)).data() ?? {}, 'savings')
+    const counterRef = doc(db, 'counters', `loans-${year}`)
+    const next = nextRef((await tx.get(counterRef)).data() ?? {}, 'savings', m.uid)
     loanRef = refLabel(next)
     const now = Date.now()
     const loanDoc = doc(requests)
@@ -447,36 +448,80 @@ export async function fixSavingsLoans(year: number): Promise<void> {
   for (const id of borrowers) await rebuildLedger(id, year)
 }
 
-/** Gives references and running numbers to loans from before they existed, in approval order. */
-export async function assignMissingRefs(): Promise<void> {
-  const all = asRequests((await getDocs(requests)).docs)
-    .filter((r) => (!r.ref || !r.no) && (r.status === 'approved' || r.status === 'paid'))
+/**
+ * Loan references for the cycle (13SL #14). The first time, every loan approved this cycle is numbered in approval
+ * order under this scheme; after that, only loans missing a reference get one.
+ */
+export async function ensureRefs(year: number): Promise<void> {
+  const counterRef = doc(db, 'counters', `loans-${year}`)
+  const fresh = !(await getDoc(counterRef)).data()?.scheme
+  const loans = asRequests((await getDocs(requests)).docs)
+    .filter((r) => (r.status === 'approved' || r.status === 'paid') && new Date(r.decidedAt ?? r.createdAt).getFullYear() === year && (fresh || !r.ref || !r.no))
     .sort((a, b) => (a.decidedAt ?? a.createdAt) - (b.decidedAt ?? b.createdAt))
-  if (!all.length) return
+  if (!loans.length && !fresh) return
   await runTransaction(db, async (tx) => {
-    const counterRef = doc(db, 'counters', 'loans')
-    let counters = (await tx.get(counterRef)).data() ?? {}
-    for (const r of all) {
-      if (r.ref) { // has its type reference already: only the running number is new
-        const no = (counters.ALL ?? 0) + 1
-        counters = { ...counters, ALL: no }
-        tx.update(doc(db, 'loanRequests', r.id), { no })
-      } else {
-        const next = nextRef(counters, r.type)
-        counters = next.counters
-        tx.update(doc(db, 'loanRequests', r.id), { ref: next.ref, no: next.no })
-      }
+    let counters: Record<string, number> = fresh ? {} : (await tx.get(counterRef)).data() ?? {}
+    for (const r of loans) {
+      const next = nextRef(counters, r.type, r.borrowerId)
+      counters = next.counters
+      tx.update(doc(db, 'loanRequests', r.id), { ref: next.ref, no: next.no })
     }
-    tx.set(counterRef, counters)
+    tx.set(counterRef, { ...counters, scheme: 2 })
   })
 }
 
-/** Terminates a member (admin-confirmed): loans and the projected dividend are disabled. Logged in their history. */
-export async function terminateMember(m: StoredMember, reason: string, year: number) {
+/** Pays a loan from savings at termination: in full (closes it) or in part (stays active with the rest owed). */
+type LoanActionResult = { update: Record<string, string | number>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean }[] }
+
+const payLoanFromSavings = (id: string, year: number, amount: number, full: boolean) =>
+  loanAction(id, year, (r): LoanActionResult => {
+    const note = 'Paid from savings at termination'
+    if (full) {
+      const interest = settleInterest(r)
+      return {
+        update: { status: 'paid', paidAt: Date.now() },
+        entries: [
+          ...(interest > 0 ? [{ kind: 'interest' as const, amount: interest, note: `${note} (interest part)` }] : []),
+          { kind: 'principal', amount: Math.round(principalOf(r) * 100) / 100, note },
+        ],
+      }
+    }
+    const p = customPayment(r, amount)
+    if ('error' in p) throw new Error(p.error)
+    const toPrincipal = Math.round((amount - p.collected) * 100) / 100
+    return {
+      update: { balance: p.balance, principal: p.principal, customPayments: (r.customPayments ?? 0) + 1 },
+      entries: [
+        ...(p.collected > 0 ? [{ kind: 'interest' as const, amount: p.collected, note: `${note}: part (interest)` }] : []),
+        ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, note: `${note}: part (balance)` }] : []),
+      ],
+    }
+  })
+
+/**
+ * Terminates a member (admin-confirmed). Their savings, less the 20% fee, pay their unpaid loans (oldest first,
+ * then the old-sheet balance); paid loans close. The fee is recorded as interest collected from them.
+ */
+export async function terminateMember(m: StoredMember, reason: string, year: number, loans: LoanRequest[]) {
+  await requireMigrated()
+  const saved = Math.round(m.paid.reduce((a, b) => a + b, 0) * 100) / 100
+  const fee = Math.round(saved * 0.2 * 100) / 100
+  const afterFee = Math.round((saved - fee) * 100) / 100
+  const open = loans.filter((r) => r.borrowerId === m.uid && r.status === 'approved').sort((a, b) => (a.decidedAt ?? a.createdAt) - (b.decidedAt ?? b.createdAt))
+  const plan = payFromSavings(open.map((r) => ({ id: r.id, balance: balanceOf(r) })), m.sheetLoanBalance ?? 0, afterFee)
+  for (const p of plan.payments) await payLoanFromSavings(p.id, year, p.amount, p.full)
+  const loansDeducted = Math.round((plan.payments.reduce((t, p) => t + p.amount, 0) + plan.sheetPaid) * 100) / 100
+  const now = Date.now()
   const batch = writeBatch(db)
-  batch.update(doc(db, 'members', m.uid), { terminated: { at: Date.now(), reason } })
-  batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0, note: `Account terminated: ${reason}` }, year, Date.now()))
+  if (plan.sheetPaid > 0) {
+    batch.update(doc(db, 'members', m.uid), { sheetLoanBalance: Math.round(((m.sheetLoanBalance ?? 0) - plan.sheetPaid) * 100) / 100 })
+    batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0, note: `Old sheet loan balance: ${php(plan.sheetPaid)} paid from savings at termination` }, year, now))
+  }
+  if (fee > 0) batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'interest', amount: fee, note: `Termination fee: 20% of ${php(saved)} savings` }, year, now + 1))
+  batch.update(doc(db, 'members', m.uid), { terminated: { at: now, reason, saved, fee, loansDeducted, payout: plan.payout, stillOwed: plan.stillOwed } })
+  batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0, note: `Account terminated: ${reason}` }, year, now + 2))
   await batch.commit()
+  await rebuildLedger(m.uid, year)
 }
 
 export async function restoreMember(m: StoredMember, year: number) {

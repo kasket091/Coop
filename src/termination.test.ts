@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { terminationFlag, terminationPayout } from './termination'
+import { payFromSavings, terminationFlag, terminationPayout } from './termination'
 
 const paid = (n: number) => Array(12).fill(6000).map((v, i) => (i < n ? v : 0))
 
@@ -27,4 +27,13 @@ it('termination payout: savings less 20%, less unpaid loans', () => {
 })
 it('loans larger than what is left: nothing paid out, the rest still owed', () => {
   expect(terminationPayout(10000, 9000)).toEqual({ saved: 10000, fee: 2000, afterFee: 8000, loansDeducted: 8000, payout: 0, stillOwed: 1000 })
+})
+
+it('termination pays unpaid loans from savings, oldest first; the sheet balance last', () => {
+  const plan = payFromSavings([{ id: 'a', balance: 6600 }, { id: 'b', balance: 20000 }], 5000, 52800)
+  expect(plan).toEqual({ payments: [{ id: 'a', amount: 6600, full: true }, { id: 'b', amount: 20000, full: true }], sheetPaid: 5000, payout: 21200, stillOwed: 0 })
+})
+it('when savings run out, the last loan is part-paid and the rest is still owed', () => {
+  const plan = payFromSavings([{ id: 'a', balance: 6600 }, { id: 'b', balance: 20000 }], 5000, 8000)
+  expect(plan).toEqual({ payments: [{ id: 'a', amount: 6600, full: true }, { id: 'b', amount: 1400, full: false }], sheetPaid: 0, payout: 0, stillOwed: 23600 })
 })

@@ -22,3 +22,22 @@ export function terminationPayout(saved: number, unpaid: number) {
   const loansDeducted = cents(Math.min(unpaid, afterFee))
   return { saved, fee, afterFee, loansDeducted, payout: cents(afterFee - loansDeducted), stillOwed: cents(Math.max(0, unpaid - afterFee)) }
 }
+
+/**
+ * At termination, what's left after the fee pays the unpaid loans: app loans oldest first, then the old-sheet
+ * balance. A loan the money runs out on is part-paid; whatever is left over is the termination payout.
+ */
+export function payFromSavings(loans: { id: string; balance: number }[], sheetBalance: number, available: number) {
+  let left = available
+  const payments: { id: string; amount: number; full: boolean }[] = []
+  for (const l of loans) {
+    if (left <= 0) break
+    const amount = cents(Math.min(l.balance, left))
+    payments.push({ id: l.id, amount, full: amount >= l.balance })
+    left = cents(left - amount)
+  }
+  const sheetPaid = cents(Math.min(sheetBalance, Math.max(0, left)))
+  left = cents(left - sheetPaid)
+  const owed = cents(loans.reduce((t, l) => t + l.balance, 0) + sheetBalance)
+  return { payments, sheetPaid, payout: Math.max(0, left), stillOwed: cents(Math.max(0, owed - available)) }
+}
