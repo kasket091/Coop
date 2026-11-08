@@ -299,3 +299,11 @@ input.locked { background: var(--cream); color: var(--navy); font-weight: 700; }
 }
 
 .resync tr.stray td { color: var(--red); font-weight: 700; }
+
+/* carryover months: red cells, as the coop's sheet marked capitalized interest */
+.sheet td.carry, .sheet tbody tr:nth-child(even) td.carry, .sheet tr.top td.carry { background: #f4c7c3; color: #6e1c18; font-weight: 700; }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+.swatch.carry { background: #f4c7c3; border: 1px solid #d99a95; }
+.carry-open { margin: 0 0 14px auto; display: block; }
+.carry-title { color: var(--navy); }
+@media print { .sheet td.carry { background: #f4c7c3 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }

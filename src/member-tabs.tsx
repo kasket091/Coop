@@ -80,13 +80,13 @@ export function TxnList({ txns, onVoid }: { txns: Txn[]; onVoid?: (t: Txn) => vo
       {txns.map((t) => (
         <li key={t.id} className={t.voidedAt ? 'voided' : undefined}>
           <span className="txn-main">
-            <b>{KIND_LABEL[t.kind]}</b>
+            <b>{t.carryover ? 'Carryover' : KIND_LABEL[t.kind]}</b>
             <small>{fmtDate(t.createdAt)} · {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][t.month]} {t.cycle}{t.note ? ` · ${t.note}` : ''}</small>
             {t.voidedAt && <small className="void-reason">Voided: {t.voidReason}</small>}
           </span>
           <span className="txn-side">
             {t.kind !== 'note' && <b>{t.kind === 'release' ? '' : '+'}{peso(t.amount)}</b>}
-            {onVoid && !t.voidedAt && (t.kind !== 'note' || t.loanId) && <button className="btn-mini" onClick={() => onVoid(t)}>Void</button>}
+            {onVoid && !t.voidedAt && (t.kind !== 'note' || t.loanId || t.carryover) && <button className="btn-mini" onClick={() => onVoid(t)}>Void</button>}
           </span>
         </li>
       ))}

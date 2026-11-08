@@ -11,7 +11,7 @@ import {
 import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { loadMembers } from './data'
 import { auth, db, firebaseConfig } from './firebase'
-import { ledgerFrom, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
+import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
 import { balanceOf, carryover, customPayment, loanSnapshot, monthInterest, payInterest, principalOf, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
@@ -226,7 +226,7 @@ export async function adminDecide(id: string, status: 'approved' | 'declined', y
  * can be voided) and updates the loan. Interest actually paid counts toward the dividend; carried interest
  * only once it is paid.
  */
-async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number>; entries: { kind: TxnKind; amount: number; note: string }[] }) {
+async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean }[] }) {
   await requireMigrated()
   let memberId = ''
   await runTransaction(db, async (tx) => {
@@ -297,7 +297,7 @@ export const loanCustomPayment = (id: string, year: number, amount: number) =>
 export const carryOverLoan = (id: string, year: number) =>
   loanAction(id, year, (r) => ({
     update: carryover(r),
-    entries: [{ kind: 'note', amount: 0, note: `Carryover: ${php(monthInterest(r))} interest added; balance now ${php(balanceOf(r) + monthInterest(r))}` }],
+    entries: [{ kind: 'note', amount: 0, carryover: true, note: `Carryover: ${php(monthInterest(r))} interest added; balance now ${php(balanceOf(r) + monthInterest(r))}` }],
   }))
 
 // ---------- admin ----------
@@ -381,6 +381,15 @@ export async function renameMember(m: StoredMember, newName: string): Promise<vo
   if (m.loginKey && m.email) { batch.delete(doc(db, 'logins', m.loginKey)); batch.set(doc(db, 'logins', key), { email: m.email, name }) }
   if (m.founder) batch.set(doc(db, 'founders', m.uid), { name })
   await batch.commit()
+}
+
+/** Marks months where a member's interest was carried over (e.g. from the old sheet). Red on the dashboard; voidable. */
+export async function markCarryover(m: StoredMember, from: number, to: number, note: string, year: number) {
+  const now = Date.now()
+  await commitChunks(monthRange(from, to).map((month, i) => (b) => b.set(doc(txns), txnRecord({
+    memberId: m.uid, memberName: m.name, kind: 'note', amount: 0, month, carryover: true,
+    note: note || 'Carryover (interest added to the balance)',
+  }, year, now + i))))
 }
 
 /** The member's unpaid balance from the old Borrowers sheet: typed by the admin, every change logged. */

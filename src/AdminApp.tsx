@@ -9,7 +9,7 @@ import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, addTransaction, adminDecide, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
+  addMember, addTransaction, adminDecide, markCarryover, carryOverLoan, deleteMember, importFromSheet, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, previewResync, recomputeSummary, renameMember, resetLogin, runResync, saveHeads, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchMigrated, watchSummary,
   type ResyncRow, type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers,
@@ -49,7 +49,7 @@ export function AdminApp({ year }: { year: number }) {
         : tab === 'members' ? <Members members={members} requests={requests} txns={txns} year={year} />
         : tab === 'loans' ? <LoansAdmin requests={requests} members={members} />
         : tab === 'requests' ? <Requests requests={requests} year={year} />
-        : tab === 'dashboard' ? <Dashboard members={members} year={year} />
+        : tab === 'dashboard' ? <Dashboard members={members} txns={txns} year={year} />
         : <CoopAdmin members={members} summary={summary} year={year} />}
     </Shell>
   )
@@ -187,6 +187,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
       <div className="section">
         <h2>Transactions</h2>
         <AddTxn m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
+        <MarkCarryover m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
         {msg && <p className={msg.ok ? 'success' : 'alert'} role="status">{msg.text}</p>}
         <TxnList txns={txns} onVoid={askVoid} />
       </div>
@@ -219,6 +220,41 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
         </div>
       )}
     </section>
+  )
+}
+
+/** Mark a range of months as carryover (interest added to the balance). Shows red on the dashboard. */
+function MarkCarryover({ m, year, onDone }: { m: StoredMember; year: number; onDone: (msg: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [from, setFrom] = useState(ledgerMonth(year))
+  const [to, setTo] = useState(ledgerMonth(year))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  if (!open) return <button className="btn-mini carry-open" onClick={() => setOpen(true)}>Mark carryover months</button>
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true); setError(null)
+    try {
+      await markCarryover(m, from, to, '', year)
+      onDone(`Marked ${MONTHS[Math.min(from, to)]}–${MONTHS[Math.max(from, to)]} as carryover for ${m.name}.`); setOpen(false)
+    } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(false) }
+  }
+  return (
+    <form className="add-txn" onSubmit={submit}>
+      <b className="carry-title">Mark carryover months</b>
+      <div className="add-txn-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <div className="field"><label htmlFor="cf">From</label>
+          <select id="cf" value={from} onChange={(e) => setFrom(Number(e.target.value))}>{MONTHS.map((mo, i) => <option key={mo} value={i}>{mo}</option>)}</select></div>
+        <div className="field"><label htmlFor="ct">To</label>
+          <select id="ct" value={to} onChange={(e) => setTo(Number(e.target.value))}>{MONTHS.map((mo, i) => <option key={mo} value={i}>{mo}</option>)}</select></div>
+      </div>
+      <p className="note" style={{ marginTop: 0 }}>Records the months only (no money). They show red on the Dashboard; void one to undo it.</p>
+      {error && <p className="alert" role="alert">{error}</p>}
+      <span className="pay-buttons">
+        <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Mark as carryover'}</button>
+        <button type="button" className="copy" onClick={() => setOpen(false)}>Cancel</button>
+      </span>
+    </form>
   )
 }
 

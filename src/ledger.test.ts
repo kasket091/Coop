@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { RECRUITS, recruiterOf, BOARD } from './accounts'
-import { ledgerFrom, newestLiveForLoan, quarterTotals, type Txn } from './ledger'
+import { carryoverMonths, ledgerFrom, monthRange, newestLiveForLoan, quarterTotals, type Txn } from './ledger'
 
 const t = (over: Partial<Txn>): Txn => ({
   id: Math.random().toString(36), memberId: 'm', memberName: 'M', kind: 'savings', amount: 0, month: 0, cycle: 2026,
@@ -34,4 +34,20 @@ it('recruiters: 22 recruits, each with one recruiter; Bryan recruits but is on t
   expect(recruiterOf('Mark Dave Tumanda')).toBeUndefined()
   expect(BOARD).toContain('Bryan Kevin Tabuan')
   expect(BOARD).toHaveLength(11)
+})
+
+it('carryover months: live carryover marks per member, this cycle only', () => {
+  const marks = carryoverMonths([
+    t({ memberId: 'ma', kind: 'note', carryover: true, month: 6 }), t({ memberId: 'ma', kind: 'note', carryover: true, month: 10 }),
+    t({ memberId: 'ma', kind: 'note', carryover: true, month: 7, voidedAt: 5 }),
+    t({ memberId: 'ev', kind: 'note', carryover: true, month: 8 }), t({ memberId: 'ev', kind: 'note', carryover: true, month: 9, cycle: 2025 }),
+    t({ memberId: 'ev', kind: 'note', month: 3 }),
+  ], 2026)
+  expect([...(marks.get('ma') ?? [])].sort((a, b) => a - b)).toEqual([6, 10])
+  expect([...(marks.get('ev') ?? [])]).toEqual([8])
+})
+
+it('a month range for carryover marks', () => {
+  expect(monthRange(6, 10)).toEqual([6, 7, 8, 9, 10])
+  expect(monthRange(10, 6)).toEqual([6, 7, 8, 9, 10])
 })

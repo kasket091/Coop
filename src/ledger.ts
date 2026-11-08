@@ -7,6 +7,8 @@ export type Txn = {
   loanId?: string; note: string; createdAt: number; voidedAt?: number; voidReason?: string
   /** the loan as it was before this transaction, so voiding it can put the loan back */
   loanBefore?: LoanSnapshot
+  /** marks a month where the member's interest was carried over (shown red on the dashboard) */
+  carryover?: boolean
 }
 
 const cents = (x: number) => Math.round(x * 100) / 100
@@ -27,3 +29,17 @@ export const quarterTotals = (months: number[]) => [0, 3, 6, 9].map((i) => cents
 /** Only a loan's newest live transaction may be voided, so the loan's history never contradicts itself. */
 export const newestLiveForLoan = (txns: Txn[], loanId: string) =>
   txns.filter((t) => t.loanId === loanId && !t.voidedAt).sort((a, b) => b.createdAt - a.createdAt)[0]
+
+/** Months (0–11) per member that carried interest over this cycle; voided marks don't count. */
+export function carryoverMonths(txns: Txn[], cycle: number): Map<string, Set<number>> {
+  const out = new Map<string, Set<number>>()
+  for (const t of txns) {
+    if (!t.carryover || t.voidedAt || t.cycle !== cycle) continue
+    if (!out.has(t.memberId)) out.set(t.memberId, new Set())
+    out.get(t.memberId)!.add(t.month)
+  }
+  return out
+}
+
+export const monthRange = (a: number, b: number) =>
+  Array.from({ length: Math.abs(b - a) + 1 }, (_, i) => Math.min(a, b) + i)

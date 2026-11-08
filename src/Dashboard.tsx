@@ -1,5 +1,5 @@
 import { MONTHS, peso } from './format'
-import { quarterTotals } from './ledger'
+import { carryoverMonths, quarterTotals, type Txn } from './ledger'
 import { coopSummary } from './rules'
 import type { StoredMember } from './store'
 
@@ -9,7 +9,7 @@ const byMonth = (rows: number[][]) => MONTHS.map((_, i) => cents(sum(rows.map((r
 const n = (x: number) => (x ? x.toLocaleString('en-PH', { maximumFractionDigits: 2 }) : '')
 
 /** The quarterly-meeting report: the two grids the coop has always read (savings and interest by member and month). */
-export function Dashboard({ members, year }: { members: StoredMember[]; year: number }) {
+export function Dashboard({ members, txns, year }: { members: StoredMember[]; txns: Txn[]; year: number }) {
   const ordered = [...members].sort((a, b) => a.id - b.id) // sheet order
   const savers = ordered.filter((m) => m.heads > 0)
   const savingsMonths = byMonth(savers.map((m) => m.paid))
@@ -17,6 +17,8 @@ export function Dashboard({ members, year }: { members: StoredMember[]; year: nu
   const c = coopSummary(members)
   const top = c.top?.name
   const qs = quarterTotals(savingsMonths), qi = quarterTotals(interestMonths)
+  const carry = carryoverMonths(txns, year)
+  const cls = (uid: string, month: number) => (carry.get(uid)?.has(month) ? 'carry' : undefined)
 
   return (
     <section className="dashboard">
@@ -57,7 +59,7 @@ export function Dashboard({ members, year }: { members: StoredMember[]; year: nu
               <tr key={m.uid}>
                 <th scope="row" className="sticky">{m.name}</th>
                 <td>{m.heads}</td><td>{n(m.heads * 500)}</td><td>{c.totalHeads ? ((m.heads / c.totalHeads) * 100).toFixed(2) : ''}</td>
-                {MONTHS.map((_, i) => <td key={i}>{n(m.paid[i])}</td>)}
+                {MONTHS.map((_, i) => <td key={i} className={cls(m.uid, i)}>{n(m.paid[i])}</td>)}
                 <td className="tot">{n(sum(m.paid))}</td>
               </tr>
             ))}
@@ -81,7 +83,7 @@ export function Dashboard({ members, year }: { members: StoredMember[]; year: nu
               return (
                 <tr key={m.uid} className={m.name === top ? 'top' : undefined}>
                   <th scope="row" className="sticky">{m.name}{m.name === top ? ' ★' : ''}</th>
-                  {MONTHS.map((_, i) => <td key={i}>{n(m.interest[i])}</td>)}
+                  {MONTHS.map((_, i) => <td key={i} className={cls(m.uid, i)}>{n(m.interest[i])}</td>)}
                   <td className="tot">{n(t)}</td><td>{n(Math.round(t * 0.03))}</td>
                 </tr>
               )
@@ -93,7 +95,7 @@ export function Dashboard({ members, year }: { members: StoredMember[]; year: nu
           </tfoot>
         </table>
       </div>
-      <p className="note">★ top borrower: the only one who receives the 3% bonus. Voided transactions are not counted.</p>
+      <p className="note dash-legend"><i className="swatch carry" aria-hidden="true" /> Red = carryover month (interest added to the balance) · ★ top borrower: the only one who receives the 3% bonus · voided entries are not counted.</p>
     </section>
   )
 }
