@@ -5,7 +5,7 @@ import { Dashboard } from './Dashboard'
 import { MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
-import { balanceOf, canAdminApprove, customPayment, monthInterest, refLabel, unpaidLoans, type LoanRequest } from './requests'
+import { balanceOf, canAdminApprove, customPayment, loanMonth, monthInterest, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { carryoverMonths } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
@@ -410,7 +410,7 @@ function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanReq
         {u.loans.map((r) => (
           <li key={r.id}>
             <span>
-              {r.ref && <b className="ref">{refLabel(r)}</b>}{peso(balanceOf(r))} owed{balanceOf(r) !== r.amount ? ` (borrowed ${peso(r.amount)})` : ''}
+              {r.ref && <b className="ref">{refLabel(r)}</b>}<b className="loan-month">{loanMonth(r)}</b>{peso(balanceOf(r))} owed{balanceOf(r) !== r.amount ? ` (borrowed ${peso(r.amount)})` : ''}
               <small>
                 approved {new Date(r.decidedAt ?? r.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
                 {monthInterest(r) > 0 ? ` · this month's interest ${peso(monthInterest(r))}` : ` · ${r.quote}`}

@@ -3,7 +3,7 @@ import { ADMIN_MEMBER_NAME } from './accounts'
 import { peso } from './format'
 import type { Txn } from './ledger'
 import {
-  balanceOf, comakerMode, monthInterest, refLabel, requestStage, unpaidLoans, validateRequest, type LoanRequest, type LoanType,
+  balanceOf, comakerMode, loanMonth, monthInterest, refLabel, requestStage, unpaidLoans, validateRequest, type LoanRequest, type LoanType,
 } from './requests'
 import { depositAmount, loanLimit, monthsLeft } from './rules'
 import {
@@ -207,7 +207,7 @@ export function RequestCard({ r, children }: { r: LoanRequest; children?: React.
   return (
     <li className="request">
       <div className="request-head">
-        <b>{r.ref ? <span className="ref">{refLabel(r)}</span> : null}{peso(r.amount)} · {TYPES[r.type]}</b>
+        <b>{r.ref ? <span className="ref">{refLabel(r)}</span> : null}<span className="loan-month">{loanMonth(r)}</span>{peso(r.amount)} · {TYPES[r.type]}</b>
         <span className={`stage stage-${requestStage(r).split(' ')[0].toLowerCase()}`}>{requestStage(r)}</span>
       </div>
       <p className="note" style={{ marginTop: 2 }}>{r.months} month{r.months === 1 ? '' : 's'} · {r.quote} · sent {fmtDate(r.createdAt)}</p>

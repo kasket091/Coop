@@ -217,3 +217,12 @@ export function upfrontFix(r: LoanRequest) {
   const added = cents(r.amount * 0.1)
   return { balance: cents(balanceOf(r) + added), upfront: true as const, added }
 }
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** Which month a loan belongs to: a Savings Loan's covered month, else the month it was approved (or asked for). */
+export function loanMonth(r: LoanRequest): string {
+  if (r.type === 'savings' && r.carriedMonth !== undefined) return `${MONTH_ABBR[r.carriedMonth]} savings`
+  if (r.status === 'pending' || r.status === 'withdrawn' || !r.decidedAt) return `${MONTH_ABBR[new Date(r.createdAt).getMonth()]} request`
+  return `${MONTH_ABBR[new Date(r.decidedAt).getMonth()]} loan`
+}

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { LOAN_CODE, monthInterest, nextRef, refLabel, savingsLoan, settleInterest, upfrontFix, type LoanRequest } from './requests'
+import { LOAN_CODE, loanMonth, monthInterest, nextRef, refLabel, savingsLoan, settleInterest, upfrontFix, type LoanRequest } from './requests'
 
 it('every loan type has a 2-letter reference code', () => {
   expect(LOAN_CODE).toEqual({ flex: 'FL', savings: 'SL', regular: 'RL', grocery: 'GL', appliance: 'AL', events: 'HL', deposit: 'DL' })
@@ -34,4 +34,11 @@ it('an older Savings Loan without the upfront 10% gets it once', () => {
   expect(upfrontFix(old)).toEqual({ balance: 6050, upfront: true, added: 550 })
   expect(upfrontFix({ ...old, upfront: true })).toBeNull()
   expect(upfrontFix({ ...old, type: 'flex' })).toBeNull()
+})
+
+it('each loan names its month: savings loans the month they cover, others the month approved', () => {
+  const base = { borrowerId: 'm', borrowerName: 'M', amount: 1, months: 1, quote: '', comakers: {}, comakerIds: [], createdAt: new Date(2026, 9, 20).getTime() }
+  expect(loanMonth({ ...base, id: 'a', type: 'savings', status: 'approved', carriedMonth: 6 })).toBe('Jul savings')
+  expect(loanMonth({ ...base, id: 'b', type: 'flex', status: 'paid', decidedAt: new Date(2026, 10, 3).getTime() })).toBe('Nov loan')
+  expect(loanMonth({ ...base, id: 'c', type: 'flex', status: 'pending' })).toBe('Oct request')
 })
