@@ -33,13 +33,21 @@ export function Coop({ coop, members }: { coop: CoopSummary; members: Member[] }
   )
 }
 
+// Labels stay short enough for a 343px select; the conditions show under the field.
 const TYPES = {
-  regular: 'Regular loan (flat rate)',
-  flex: 'Flex loan (8% a month)',
-  grocery: 'Grocery – Tindamarts (5%, from ₱2,000)',
-  appliance: 'Appliances / devices (5%, 2+ months)',
-  events: 'HILAS Special Events – board only (8%)',
+  regular: 'Regular (flat rate)',
+  flex: 'Flex (8% a month)',
+  grocery: 'Grocery – Tindamarts (5%)',
+  appliance: 'Appliance / device (5%)',
+  events: 'Special Events (8%)',
 } as const
+const CONDITIONS: Record<keyof typeof TYPES, string> = {
+  regular: '₱10,000–₱50,000 for 2 or 3 months; ₱20,000–₱75,000 for 6 months.',
+  flex: '7% instead of 8% if paid back within 15 days.',
+  grocery: 'Minimum ₱2,000.',
+  appliance: 'At least 2 months. Proof of receipt required.',
+  events: 'Board members only.',
+}
 type LoanType = keyof typeof TYPES
 
 export function Loans({ member }: { member: Member | null }) {
@@ -59,6 +67,7 @@ export function Loans({ member }: { member: Member | null }) {
         <select id="type" value={type} onChange={(e) => setType(e.target.value as LoanType)}>
           {Object.entries(TYPES).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
+        <p className="note" style={{ marginTop: 0 }}>{CONDITIONS[type]}</p>
       </div>
       <div className="field">
         <label htmlFor="amt">Amount (₱)</label>

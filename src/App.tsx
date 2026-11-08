@@ -43,7 +43,7 @@ export default function App() {
         <span className="year" aria-label="2026">2026</span>
       </header>
       <main>
-        {/* Pay & Rules and the calculator need no sheet data, so they work offline too */}
+        {/* Pay & Rules and the calculator need no sheet data, so they still work while the sheet is loading or failing */}
         {tab === 'pay' ? <PayRules />
           : tab === 'loans' ? <Loans member={me} />
           : error ? (
