@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AdminApp } from './AdminApp'
 import { DialogHost } from './dialog'
 import { Login } from './Login'
+import { enablePush } from './push'
 import { StatusBars } from './pwa'
 import { MemberApp } from './MemberApp'
 import { DEFAULT_CYCLE_YEAR } from './rules'
@@ -14,6 +15,8 @@ export default function App() {
   const [year, setYear] = useState(DEFAULT_CYCLE_YEAR)
   useEffect(() => onSession(setSession), [])
   useEffect(() => (session ? watchCycle(setYear) : undefined), [session])
+  // a phone that already allowed notifications re-saves its token (they can change) under whoever signed in
+  useEffect(() => { if (session) enablePush(false).catch(() => {}) }, [session])
 
   return <><StatusBars />{screen(session, year)}<DialogHost /></>
 }

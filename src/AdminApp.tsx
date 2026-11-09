@@ -10,6 +10,7 @@ import { carryoverMonths } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
 import { askText, askYes } from './dialog'
+import { PushSetting } from './push'
 import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
@@ -670,6 +671,7 @@ function CoopAdmin({ members, summary, year }: { members: StoredMember[]; summar
       </div>
       {error && <p className="alert" role="alert">{error}</p>}
       <BackupRestore />
+      <PushSetting who="admin" />
       <div className="section"><button className="copy wide" onClick={() => signOutUser()}>Log out</button></div>
     </section>
   )

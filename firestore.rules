@@ -44,6 +44,17 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // phones that turned on notifications (doc id = the phone's push token). Each person saves and removes only
+    // their own; only the admin's sign-in may mark one as the admin's. Nobody reads them: the Cloud Function does.
+    match /pushTokens/{token} {
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'admin', 'at'])
+        && request.resource.data.uid == me()
+        && request.resource.data.admin == isAdmin()
+        && request.resource.data.at is int;
+      allow delete: if signedIn() && resource.data.uid == me();
+    }
+
     match /members/{uid} {
       allow read: if isAdmin() || (signedIn() && me() == uid);
       allow write: if isAdmin();

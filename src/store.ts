@@ -5,7 +5,7 @@ import {
   signInWithEmailAndPassword, signOut, updatePassword,
 } from 'firebase/auth'
 import {
-  addDoc as addDocRaw, collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction as runTransactionRaw,
+  addDoc as addDocRaw, collection, deleteDoc as deleteDocRaw, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction as runTransactionRaw,
   setDoc as setDocRaw, updateDoc as updateDocRaw, where, writeBatch as writeBatchRaw,
   type DocumentReference, type Transaction, type Unsubscribe,
 } from 'firebase/firestore'
@@ -23,7 +23,7 @@ import { BACKUP_COLLECTIONS, makeBackup, type Backup } from './backup'
 export const OFFLINE_MESSAGE = "You're offline, so nothing was saved. Try again when you're connected."
 const online = () => { if (typeof navigator !== 'undefined' && !navigator.onLine) throw new Error(OFFLINE_MESSAGE) }
 const guard = <F extends (...a: never[]) => unknown>(f: F) => ((...a: Parameters<F>) => { online(); return f(...a) }) as F
-const addDoc = guard(addDocRaw), setDoc = guard(setDocRaw), updateDoc = guard(updateDocRaw), runTransaction = guard(runTransactionRaw)
+const addDoc = guard(addDocRaw), deleteDoc = guard(deleteDocRaw), setDoc = guard(setDocRaw), updateDoc = guard(updateDocRaw), runTransaction = guard(runTransactionRaw)
 const writeBatch: typeof writeBatchRaw = (...a) => {
   const b = writeBatchRaw(...a)
   const commit = b.commit.bind(b)
@@ -76,7 +76,24 @@ export async function signIn(name: string, password: string): Promise<void> {
   }
 }
 
-export const signOutUser = () => signOut(auth)
+const PUSH_KEY = 'hilas-push-token'
+
+/** Saves this phone's push token under whoever is signed in; the Cloud Function finds people's phones by it. */
+export async function savePushToken(token: string) {
+  const user = auth.currentUser
+  if (!user) return
+  await setDoc(doc(db, 'pushTokens', token), { uid: user.uid, admin: user.email === ADMIN_EMAIL, at: Date.now() })
+  try { localStorage.setItem(PUSH_KEY, token) } catch { /* private mode: the token is still saved */ }
+}
+
+export async function signOutUser() {
+  // this phone stops getting the signed-out person's notifications
+  try {
+    const t = localStorage.getItem(PUSH_KEY)
+    if (t) { await deleteDoc(doc(db, 'pushTokens', t)); localStorage.removeItem(PUSH_KEY) }
+  } catch { /* offline or no storage: still sign out */ }
+  await signOut(auth)
+}
 
 export async function changePassword(current: string, next: string): Promise<void> {
   const user = auth.currentUser

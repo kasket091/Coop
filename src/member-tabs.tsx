@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ADMIN_MEMBER_NAME } from './accounts'
+import { PushSetting } from './push'
 import { peso } from './format'
 import type { Txn } from './ledger'
 import {
@@ -311,6 +312,7 @@ export function AccountTab({ me }: { me: StoredMember }) {
           <li><span>Member since</span><b>{new Date(me.createdAt).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })}</b></li>
         </ul>
       </div>
+      <PushSetting who="member" />
       <form className="section" onSubmit={submit}>
         <h2>Change password</h2>
         <div className="field"><label htmlFor="pw-cur">Current password</label>

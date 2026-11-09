@@ -53,3 +53,20 @@ self.addEventListener('fetch', (event) => {
     })))
   }
 })
+
+// Push notifications from the loanRequestPush Cloud Function: data messages with a title and body.
+self.addEventListener('push', (event) => {
+  let p = {}
+  try { p = event.data ? event.data.json() : {} } catch { /* not JSON: show the default */ }
+  const d = p.data || p.notification || {}
+  event.waitUntil(self.registration.showNotification(d.title || 'Hilas Coop', { body: d.body || '', icon: 'icon-192.png' }))
+})
+
+// tapping a notification brings the open app forward, or opens it
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+    const open = wins.find((w) => w.url.startsWith(self.registration.scope))
+    return open ? open.focus() : self.clients.openWindow('./')
+  }))
+})
