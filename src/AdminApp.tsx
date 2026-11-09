@@ -512,6 +512,7 @@ function Requests({ requests, year }: { requests: LoanRequest[]; year: number })
 // ---------- loans: active and closed ----------
 function LoansAdmin({ requests, members, year }: { requests: LoanRequest[]; members: StoredMember[]; year: number }) {
   const [view, setView] = useState<'active' | 'closed'>('active')
+  const [q, setQ] = useState('')
   // loans approved before references existed get theirs (1FL, 2FL, …) the first time this tab opens
   // loan references for this cycle (13SL #14): numbers every loan once under the scheme, then only new ones
   useEffect(() => { ensureRefs(year).catch(() => {}) }, [requests, year])
@@ -521,7 +522,7 @@ function LoansAdmin({ requests, members, year }: { requests: LoanRequest[]; memb
   useEffect(() => { if (requests.some(needsSavingsSettle)) settlePaidSavingsLoans(year).catch(() => {}) }, [requests, year])
   const active = requests.filter((r) => r.status === 'approved')
   const closed = requests.filter((r) => r.status === 'paid')
-  const list = view === 'active' ? active : closed
+  const list = (view === 'active' ? active : closed).filter((r) => r.borrowerName.toLowerCase().includes(q.trim().toLowerCase()))
   const total = active.reduce((t, r) => t + balanceOf(r), 0)
   const sheet = members.reduce((t, m) => t + (m.sheetLoanBalance ?? 0), 0)
   return (
@@ -532,7 +533,9 @@ function LoansAdmin({ requests, members, year }: { requests: LoanRequest[]; memb
         <button role="tab" aria-selected={view === 'active'} onClick={() => setView('active')}>Active Loans ({active.length})</button>
         <button role="tab" aria-selected={view === 'closed'} onClick={() => setView('closed')}>Closed Loans ({closed.length})</button>
       </div>
-      {!list.length ? <p className="note section">{view === 'active' ? 'No active loans.' : 'No closed loans yet.'}</p> : (
+      <div className="field"><label htmlFor="lq">Search by name</label>
+        <input id="lq" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" /></div>
+      {!list.length ? <p className="note section">{q.trim() ? `No ${view} loans for “${q.trim()}”.` : view === 'active' ? 'No active loans.' : 'No closed loans yet.'}</p> : (
         <ul className="requests">
           {list.map((r) => (
             <RequestCard key={r.id} r={r}>
