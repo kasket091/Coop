@@ -14,7 +14,7 @@ import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, needsSavingsSettle, settlePaidSavingsLoans, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
+  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, bookFeeTopUps, needsSavingsSettle, settlePaidSavingsLoans, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, recomputeSummary, renameMember, resetLogin, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
   type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers, setRecruiter,
@@ -33,6 +33,8 @@ export function AdminApp({ year }: { year: number }) {
   useEffect(() => watchAllRequests(setRequests), [])
   useEffect(() => watchSummary(setSummary), [])
   useEffect(() => watchAllTransactions(setTxns), [])
+  // accounts terminated before the fee counted Savings Loans paid off: the rest of the 20% is booked once
+  useEffect(() => { if (members && txns.length) bookFeeTopUps(members, txns, year).catch(() => {}) }, [members, txns, year])
 
   const ready = requests.filter(canAdminApprove).length
   const tabs: TabDef<Tab>[] = [

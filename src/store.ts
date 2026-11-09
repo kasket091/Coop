@@ -14,7 +14,7 @@ import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } fro
 import { balanceOf, carryover, customPayment, loanSnapshot, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
-import { payFromSavings } from './termination'
+import { feeTopUps, payFromSavings } from './termination'
 import { BACKUP_COLLECTIONS, makeBackup, type Backup } from './backup'
 
 export type { Summary }
@@ -548,6 +548,25 @@ export async function terminateMember(m: StoredMember, reason: string, year: num
   batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0, note: `Account terminated: ${reason}` }, year, now + 2))
   await batch.commit()
   await rebuildLedger(m.uid, year)
+}
+
+/** Books the termination-fee top-ups `feeTopUps` finds (one run at a time, so a fast re-render can't book twice). */
+let toppingUp = false
+export async function bookFeeTopUps(members: StoredMember[], all: Txn[], year: number) {
+  const due = feeTopUps(members, all, year)
+  if (toppingUp || !due.length) return
+  toppingUp = true
+  try {
+    for (const d of due) {
+      const m = members.find((x) => x.uid === d.uid)!
+      const batch = writeBatch(db)
+      batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'interest', amount: d.add, month: d.month, note: `Termination fee top-up: 20% of ${php(d.saved)} savings (Savings Loans paid off now count)` }, year, Date.now()))
+      const loansDeducted = m.terminated?.loansDeducted ?? 0
+      batch.update(doc(db, 'members', m.uid), { 'terminated.saved': d.saved, 'terminated.fee': d.fee, 'terminated.payout': Math.max(0, Math.round((d.saved - d.fee - loansDeducted) * 100) / 100) })
+      await batch.commit()
+      await rebuildLedger(m.uid, year)
+    }
+  } finally { toppingUp = false }
 }
 
 export async function restoreMember(m: StoredMember, year: number) {

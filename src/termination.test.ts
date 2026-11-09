@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { payFromSavings, terminationFlag, terminationPayout } from './termination'
+import { feeTopUps, payFromSavings, terminationFlag, terminationPayout } from './termination'
 
 const paid = (n: number) => Array(12).fill(6000).map((v, i) => (i < n ? v : 0))
 
@@ -36,4 +36,15 @@ it('termination pays unpaid loans from savings, oldest first; the sheet balance 
 it('when savings run out, the last loan is part-paid and the rest is still owed', () => {
   const plan = payFromSavings([{ id: 'a', balance: 6600 }, { id: 'b', balance: 20000 }], 5000, 8000)
   expect(plan).toEqual({ payments: [{ id: 'a', amount: 6600, full: true }, { id: 'b', amount: 1400, full: false }], sheetPaid: 0, payout: 0, stillOwed: 23600 })
+})
+
+it('fee top-up: an account terminated before Savings Loans counted gets the rest of the 20%, once', () => {
+  const fee = (amount: number, over = {}) => ({ id: 'f', memberId: 'a', memberName: 'A', kind: 'interest' as const, amount, month: 10, cycle: 2026, note: 'Termination fee: 20% of ₱18,000 savings', createdAt: 1, ...over })
+  const a = { uid: 'a', terminated: { at: 1 }, paid: paid(4) } // 24,000 saved now (18,000 + 6,000 SL paid off)
+  expect(feeTopUps([a], [fee(3600)], 2026)).toEqual([{ uid: 'a', add: 1200, month: 10, saved: 24000, fee: 4800 }])
+  // already topped up, voided fees, other members and other cycles
+  expect(feeTopUps([a], [fee(3600), fee(1200, { id: 'g', note: 'Termination fee top-up' })], 2026)).toEqual([])
+  expect(feeTopUps([a], [fee(4800, { voidedAt: 2 })], 2026)).toEqual([])
+  expect(feeTopUps([{ ...a, terminated: undefined }], [fee(3600)], 2026)).toEqual([])
+  expect(feeTopUps([a], [fee(3600, { cycle: 2025 })], 2026)).toEqual([])
 })
