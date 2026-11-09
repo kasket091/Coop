@@ -470,8 +470,10 @@ function Confirm({ text, busy, onYes, onNo }: { text: string; busy: boolean; onY
 function Requests({ requests, year }: { requests: LoanRequest[]; year: number }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const pending = requests.filter((r) => r.status === 'pending')
-  const closed = requests.filter((r) => r.status !== 'pending')
+  const [q, setQ] = useState('')
+  const shown = requests.filter((r) => r.borrowerName.toLowerCase().includes(q.trim().toLowerCase()))
+  const pending = shown.filter((r) => r.status === 'pending')
+  const closed = shown.filter((r) => r.status !== 'pending')
   const decide = async (id: string, s: 'approved' | 'declined', direct = false) => {
     setBusy(id); setError(null)
     try { await adminDecide(id, s, year, direct) } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
@@ -481,7 +483,10 @@ function Requests({ requests, year }: { requests: LoanRequest[]; year: number })
       <h1 style={{ fontSize: 22 }}>Loan requests</h1>
       <p className="plan">Approve unlocks once every co-maker has approved (✓). Founders within their limit and deposit loans need none.</p>
       {error && <p className="alert" role="alert">{error}</p>}
-      {!pending.length && <p className="note section">No pending requests. When a member asks for a loan it appears here, with a ✓ beside each co-maker who approves.</p>}
+      <div className="field"><label htmlFor="rq">Search by name</label>
+        <input id="rq" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" /></div>
+      {q.trim() && !shown.length && <p className="note section">No requests for “{q.trim()}”.</p>}
+      {!q.trim() && !pending.length && <p className="note section">No pending requests. When a member asks for a loan it appears here, with a ✓ beside each co-maker who approves.</p>}
       <ul className="requests">
         {pending.map((r) => (
           <RequestCard key={r.id} r={r}>
