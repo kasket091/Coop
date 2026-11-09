@@ -86,12 +86,18 @@ function TerminationCard({ live, reason, unpaid, ...frozen }: {
   const t = frozen.payout !== undefined
     ? { saved: frozen.saved ?? live, fee: frozen.fee ?? 0, loansDeducted: frozen.loansDeducted ?? 0, payout: frozen.payout, stillOwed: frozen.stillOwed ?? unpaid }
     : terminationPayout(live, unpaid)
+  // Savings Loans paid at termination now count as saved: show that total, keeping the payout math on what was deposited
+  const settled = Math.round((live - t.saved) * 100) / 100
   return (
     <div className="terminated">
       <h2>Account terminated</h2>
       <p className="reason">{reason}</p>
       <ul className="rows">
-        <li><span>Total savings</span><b>{peso(t.saved)}</b></li>
+        {settled > 0 && <>
+          <li><span>Total savings</span><b>{peso(live)}</b></li>
+          <li className="sub"><span>Savings Loan paid off, now saved</span><b>−{peso(settled)}</b></li>
+        </>}
+        <li><span>{settled > 0 ? 'Savings at termination' : 'Total savings'}</span><b>{peso(t.saved)}</b></li>
         <li><span>Less 20% termination fee</span><b>−{peso(t.fee)}</b></li>
         <li><span>Less unpaid loans (paid from savings, now closed)</span><b>−{peso(t.loansDeducted)}</b></li>
         <li className="final"><span>Termination payout</span><b>{peso(t.payout)}</b></li>

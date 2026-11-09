@@ -338,3 +338,4 @@ input.locked { background: var(--cream); color: var(--navy); font-weight: 700; }
 .ask::backdrop { background: rgba(28, 27, 87, 0.45); }
 .ask p { margin: 0 0 14px; line-height: 1.45; }
 .ask input { display: block; width: 100%; min-height: 48px; padding: 0 14px; margin-bottom: 14px; border: 1.5px solid var(--line); border-radius: var(--radius); font: inherit; }
+.terminated .rows li.sub span { padding-left: 12px; font-size: 14px; color: #6e1c18; }
