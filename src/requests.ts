@@ -127,9 +127,12 @@ export function unpaidLoans(all: LoanRequest[], memberId: string, sheetBalance =
 const cents = (x: number) => Math.round(x * 100) / 100
 export const balanceOf = (r: LoanRequest) => r.balance ?? r.amount
 
-/** One month's interest on the current balance (monthly-rate loans; regular loans are flat-rate instalments). */
+/**
+ * One month's interest on the current balance (monthly-rate loans; regular loans are flat-rate instalments).
+ * A Savings Loan is the exception: always 10% of the missed savings still owed, never of the upfront or carried interest.
+ */
 export const monthInterest = (r: LoanRequest) =>
-  r.type === 'regular' ? 0 : cents(balanceOf(r) * MONTHLY_LOANS[r.type].rate)
+  r.type === 'regular' ? 0 : cents((r.type === 'savings' ? principalOf(r) : balanceOf(r)) * MONTHLY_LOANS[r.type].rate)
 
 /** Carryover: this month's interest is added to the balance; next month's interest is charged on the new balance. */
 export const carryover = (r: LoanRequest) => ({ balance: cents(balanceOf(r) + monthInterest(r)), carryovers: (r.carryovers ?? 0) + 1 })
@@ -208,7 +211,7 @@ export function savingsLoan(p: { borrowerId: string; borrowerName: string; amoun
     borrowerId: p.borrowerId, borrowerName: p.borrowerName, type: 'savings', amount: p.amount, months: 1,
     quote: '10% a month until paid', comakers: {}, comakerIds: [], status: 'approved',
     createdAt: p.now, decidedAt: p.now, ref: p.ref, carriedMonth: p.month,
-    // the 10% is added at once: ₱6,000 carried over is ₱6,600 owed; next month is charged on ₱6,600
+    // the 10% is added at once: ₱6,000 carried over is ₱6,600 owed; each month after is 10% of the ₱6,000
     balance: cents(p.amount * 1.1), principal: p.amount, upfront: true,
   }
 }

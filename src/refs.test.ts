@@ -24,8 +24,8 @@ it('carried-over savings become an approved 10% loan with no co-maker', () => {
     type: 'savings', status: 'approved', amount: 6000, balance: 6600, principal: 6000, ref: '1SL', upfront: true,
     comakerIds: [], comakers: {}, carriedMonth: 6, decidedAt: 100, createdAt: 100,
   })
-  // the 10% is added at once (₱6,600 owed); next month is charged on ₱6,600
-  expect(monthInterest({ ...(l as LoanRequest), id: 'x' })).toBe(660)
+  // the 10% is added at once (₱6,600 owed); every month after is 10% of the ₱6,000 missed savings
+  expect(monthInterest({ ...(l as LoanRequest), id: 'x' })).toBe(600)
   expect(settleInterest({ ...(l as LoanRequest), id: 'x' })).toBe(600)
 })
 

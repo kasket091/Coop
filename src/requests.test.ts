@@ -87,6 +87,14 @@ describe('pay interest and carryover (handbook p.8)', () => {
     expect(monthInterest(flex())).toBe(400)
     expect(monthInterest({ ...flex(), type: 'grocery' })).toBe(250)
   })
+  it("a Savings Loan's 10% is always on the missed savings, never on the upfront or carried interest", () => {
+    let r: LoanRequest = { ...flex(), type: 'savings', amount: 6000, principal: 6000, balance: 6600, upfront: true }
+    expect(monthInterest(r)).toBe(600)
+    r = { ...r, ...carryover(r) }; expect(r.balance).toBe(7200)
+    expect(monthInterest(r)).toBe(600)
+    r = { ...r, ...carryover(r) }; expect(r.balance).toBe(7800)
+    expect(payInterest(r).collected).toBe(600)
+  })
   it('carryover adds the interest to the balance, compounding month after month', () => {
     let r = flex()
     r = { ...r, ...carryover(r) }; expect(r.balance).toBe(5400)
