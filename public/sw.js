@@ -12,6 +12,8 @@ function route(url, origin, mode) {
 
 /** The code files the app page loads (./assets/index-….js and .css). */
 const assetsIn = (html) => [...html.matchAll(/(?:src|href)="(\.\/assets\/[^"]+)"/g)].map((m) => m[1])
+/** Files a code file or stylesheet loads from beside it: the split-off screens (./AdminApp-….js) and the fonts. */
+const filesIn = (text) => [...text.matchAll(/\.\/([\w-]+\.(?:js|css|woff2?))/g)].map((m) => `./assets/${m[1]}`)
 
 const OFFLINE = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Hilas Coop: offline</title><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#1C1B57;color:#F2F0E2;font-family:system-ui,sans-serif;text-align:center;padding:24px">
@@ -23,8 +25,14 @@ async function saveShell(pageResponse) {
   const cache = await caches.open(CACHE)
   const html = await pageResponse.clone().text()
   await cache.put('./', pageResponse)
-  const keep = new Set(assetsIn(html).map((a) => new URL(a, self.registration.scope).href))
+  const abs = (a) => new URL(a, self.registration.scope).href
+  const keep = new Set(assetsIn(html).map(abs))
   await Promise.all([...keep].map((u) => cache.match(u).then((hit) => hit || cache.add(u))))
+  // keep (don't delete) what those load: split-off screens and fonts are saved when first used
+  for (const u of [...keep]) {
+    const hit = await cache.match(u)
+    if (hit) filesIn(await hit.text()).forEach((f) => keep.add(abs(f)))
+  }
   for (const req of await cache.keys()) if (req.url.includes('/assets/') && !keep.has(req.url)) await cache.delete(req)
 }
 

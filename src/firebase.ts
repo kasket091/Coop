@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore'
 
 // Read from .env (not committed; copy .env.example). Vite still builds these into the public app: access is
 // controlled by Auth + firestore.rules and by restricting the key to this site in Google Cloud.
@@ -19,4 +19,6 @@ if (missing.length) throw new Error(`Firebase config missing (${missing.join(', 
 
 export const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
-export const db = getFirestore(app)
+// The phone keeps the last loaded records, so the app shows them at once and live figures replace them within a
+// second. Saving still needs a connection (store.ts refuses writes offline). Cleared when someone logs out.
+export const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) })

@@ -5,8 +5,8 @@ import {
   signInWithEmailAndPassword, signOut, updatePassword,
 } from 'firebase/auth'
 import {
-  addDoc as addDocRaw, collection, deleteDoc as deleteDocRaw, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction as runTransactionRaw,
-  setDoc as setDocRaw, updateDoc as updateDocRaw, where, writeBatch as writeBatchRaw,
+  addDoc as addDocRaw, clearIndexedDbPersistence, collection, deleteDoc as deleteDocRaw, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction as runTransactionRaw,
+  setDoc as setDocRaw, terminate, updateDoc as updateDocRaw, where, writeBatch as writeBatchRaw,
   type DocumentReference, type Transaction, type Unsubscribe,
 } from 'firebase/firestore'
 import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
@@ -51,23 +51,46 @@ const zeros = () => Array<number>(12).fill(0)
 export const onSession = (cb: (s: Session) => void): Unsubscribe =>
   onAuthStateChanged(auth, (u) => cb(!u ? null : u.email === ADMIN_EMAIL ? { kind: 'admin' } : { kind: 'member', uid: u.uid }))
 
+// The phone remembers which account a typed name belongs to, so the next login skips that lookup (~0.5 s).
+// Not secret: anyone can look a name up. A stale entry (the admin reset that login) is replaced on the next try.
+const LOGIN_CACHE = 'hilas-login:'
+type LoginRef = { email: string; name?: string }
+const cachedLogin = (key: string): LoginRef | null => {
+  try { const v = JSON.parse(localStorage.getItem(LOGIN_CACHE + key) ?? 'null'); return v?.email ? v : null } catch { return null }
+}
+const rememberLogin = (key: string, ref: LoginRef) => { try { localStorage.setItem(LOGIN_CACHE + key, JSON.stringify(ref)) } catch { /* no storage: just slower */ } }
+
+async function signInAs(typedName: string, password: string, ref: LoginRef) {
+  try {
+    await signInWithEmailAndPassword(auth, ref.email, password)
+  } catch (first) {
+    // starting passwords work in any letter case ("markdavetumanda" = "MarkDaveTumanda"); changed passwords stay exact
+    const exact = startingPasswordFor(typedName, ref.name)
+    if (!looksLikeStartingPassword(typedName, password) || exact === password) throw first
+    await signInWithEmailAndPassword(auth, ref.email, exact)
+  }
+}
+
 export async function signIn(name: string, password: string): Promise<void> {
   try {
     if (normalizeName(name) === 'admin') {
       await signInWithEmailAndPassword(auth, ADMIN_EMAIL, password)
       return
     }
-    const login = await getDoc(doc(db, 'logins', await loginKey(name)))
-    if (!login.exists()) throw new Error(WRONG)
-    const email = login.data().email as string
-    try {
-      await signInWithEmailAndPassword(auth, email, password)
-    } catch (first) {
-      // starting passwords work in any letter case ("markdavetumanda" = "MarkDaveTumanda"); changed passwords stay exact
-      const exact = startingPasswordFor(name, login.data().name as string | undefined)
-      if (!looksLikeStartingPassword(name, password) || exact === password) throw first
-      await signInWithEmailAndPassword(auth, email, exact)
+    const key = await loginKey(name)
+    const cached = cachedLogin(key)
+    if (cached) {
+      try { await signInAs(name, password, cached); return } catch (e) {
+        if ((e as { code?: string }).code?.includes('too-many-requests') || (e as { code?: string }).code?.includes('network')) throw e
+      }
     }
+    const login = await getDoc(doc(db, 'logins', key))
+    if (!login.exists()) throw new Error(WRONG)
+    const ref: LoginRef = { email: login.data().email as string, name: login.data().name as string | undefined }
+    // same account as remembered: the password itself was wrong, so don't spend a second try on it
+    if (cached?.email === ref.email) throw new Error(WRONG)
+    await signInAs(name, password, ref)
+    rememberLogin(key, ref)
   } catch (e) {
     const code = (e as { code?: string }).code ?? ''
     if (code.includes('too-many-requests')) throw new Error('Too many tries. Wait a few minutes and try again.')
@@ -93,6 +116,9 @@ export async function signOutUser() {
     if (t) { await deleteDoc(doc(db, 'pushTokens', t)); localStorage.removeItem(PUSH_KEY) }
   } catch { /* offline or no storage: still sign out */ }
   await signOut(auth)
+  // the next person on this phone must not see the last one's saved records: wipe them and start fresh
+  try { await terminate(db); await clearIndexedDbPersistence(db) } catch { /* nothing saved */ }
+  location.reload()
 }
 
 export async function changePassword(current: string, next: string): Promise<void> {
