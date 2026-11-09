@@ -576,7 +576,6 @@ export async function setRecruiter(m: StoredMember, recruiter: StoredMember | nu
   await batch.commit()
 }
 
-export const saveHeads = (uid: string, heads: number) => updateDoc(doc(db, 'members', uid), { heads })
 
 /** Members can't read each other, so the admin publishes the totals they need after every change. */
 export async function recomputeSummary(members: StoredMember[]): Promise<void> {

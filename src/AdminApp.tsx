@@ -15,7 +15,7 @@ import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
   addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, needsSavingsSettle, settlePaidSavingsLoans, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
-  payLoanInterest, recomputeSummary, renameMember, resetLogin, saveHeads, saveSheetLoanBalance,
+  payLoanInterest, recomputeSummary, renameMember, resetLogin, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
   type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers, setRecruiter,
 } from './store'
@@ -119,7 +119,7 @@ function AddMember({ year, board, onDone }: { year: number; board: StoredMember[
     <form onSubmit={submit}>
       <div className="who"><h1 style={{ fontSize: 22 }}>Add member</h1><button type="button" className="link" onClick={onDone}>Cancel</button></div>
       <div className="field"><label htmlFor="an">Full name</label><input id="an" value={name} onChange={(e) => setName(e.target.value)} required autoCapitalize="words" /></div>
-      <div className="field"><label htmlFor="ah">Heads (locked until December)</label><input id="ah" inputMode="numeric" value={heads} onChange={(e) => setHeads(e.target.value)} required /></div>
+      <div className="field"><label htmlFor="ah">Heads (locked until December)</label><input id="ah" inputMode="numeric" value={heads} onChange={(e) => setHeads(e.target.value)} required aria-describedby="ah-note" /><p className="note" id="ah-note">Check this carefully: heads can't be changed after the member is added.</p></div>
       <label className="check"><input type="checkbox" checked={founder} onChange={(e) => setFounder(e.target.checked)} /> Board member (can be a co-maker; needs no recruiter)</label>
       {!founder && (
         <div className="field"><label htmlFor="ar">Recruited by (their co-maker)</label>
@@ -138,8 +138,6 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
   m: StoredMember; members: StoredMember[]; requests: LoanRequest[]; txns: Txn[]; year: number
   onBack: (notice?: string) => void; onOpen: (uid: string) => void
 }) {
-  const [heads, setHeads] = useState(String(m.heads))
-  useEffect(() => setHeads(String(m.heads)), [m.heads])
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<'delete' | 'reset' | 'rename' | null>(null)
@@ -177,13 +175,6 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
       if (confirm === 'rename') { await renameMember(m, typed); setMsg({ ok: true, text: 'Renamed. They log in with the new name.' }) }
       setConfirm(null); setTyped('')
     } catch (err) { setMsg({ ok: false, text: (err as Error).message }) } finally { setBusy(false) }
-  }
-  const saveH = async () => {
-    const h = Number(heads)
-    if (!Number.isInteger(h) || h < 0 || h > 14) return setMsg({ ok: false, text: 'Heads must be a whole number from 0 to 14.' })
-    setBusy(true); setMsg(null)
-    try { await saveHeads(m.uid, h); await recomputeSummary(members.map((x) => (x.uid === m.uid ? { ...x, heads: h } : x))); setMsg({ ok: true, text: 'Heads saved.' }) }
-    catch { setMsg({ ok: false, text: "Couldn't save. Check your connection." }) } finally { setBusy(false) }
   }
   const askVoid = async (t: Txn) => {
     const reason = await askText(`Void this ${t.kind} entry${t.amount ? ` of ${peso(t.amount)}` : ''}? Type the reason:`)
@@ -233,8 +224,8 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
 
       <div className="section">
         <h2>Heads</h2>
-        <div className="field"><label htmlFor="eh">Heads (locked until December)</label><input id="eh" inputMode="numeric" value={heads} onChange={(e) => setHeads(e.target.value)} /></div>
-        <button className="copy wide" disabled={busy || heads === String(m.heads)} onClick={saveH}>Save heads</button>
+        <div className="field"><label htmlFor="eh">Heads (locked until December)</label><input id="eh" className="locked" value={m.heads} readOnly aria-describedby="eh-note" /></div>
+        <p className="note" id="eh-note">Heads are set when the member is added and can't be changed.</p>
       </div>
 
       {m.hasLogin && (
