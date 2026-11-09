@@ -175,7 +175,11 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
     try {
       if (confirm === 'delete') { await deleteMember(m); onBack(`${m.name} was deleted.`); return }
       if (confirm === 'reset') { await resetLogin(m); onBack(`${m.name}'s login was reset. Their password is now ${startingPassword(m.name)}.`); return }
-      if (confirm === 'rename') { await renameMember(m, typed); setMsg({ ok: true, text: 'Renamed. They log in with the new name.' }) }
+      if (confirm === 'rename') {
+        const name = typed.trim().replace(/\s+/g, ' ')
+        await renameMember(m, name)
+        setMsg({ ok: true, text: `Renamed. They now log in as ${name}, but their password hasn't changed (if they never changed it, it is still ${startingPassword(m.name)}). To make it ${startingPassword(name)}, tap Reset password.` })
+      }
       setConfirm(null); setTyped('')
     } catch (err) { setMsg({ ok: false, text: (err as Error).message }) } finally { setBusy(false) }
   }
