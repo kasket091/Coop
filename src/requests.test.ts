@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { depositAmount, type Member } from './rules'
+import type { Txn } from './ledger'
 import {
-  canAdminApprove, carryover, comakerMode, customPayment, monthInterest, payInterest, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
+  canAdminApprove, carryover, comakerMode, customPayment, interestDue, loanSnapshot, monthInterest, payInterest, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
 } from './requests'
 
 const zeros = () => Array(12).fill(0)
@@ -155,5 +156,35 @@ describe('approval flow', () => {
     expect(requestStage(req('approved', 'approved', 'approved'))).toBe('Approved')
     expect(requestStage(req('declined', 'pending', 'declined'))).toBe('Declined')
     expect(requestStage(req('pending', 'pending', 'withdrawn'))).toBe('Withdrawn')
+  })
+})
+
+describe("this month's interest due (in the unpaid total until paid)", () => {
+  const sl = { ...req('approved', 'approved', 'approved'), id: 'sl', borrowerId: 'me', type: 'savings', amount: 6000, principal: 6000, balance: 6600, upfront: true } as LoanRequest
+  const t = (over: Partial<Txn>): Txn => ({ id: Math.random().toString(36), memberId: 'me', memberName: 'M', kind: 'interest', amount: 600, month: 10, cycle: 2026, note: '', createdAt: 1, loanId: 'sl', ...over })
+  const due = (txns: Txn[]) => interestDue(sl, txns, 10, 2026)
+
+  it('is the full month until something is paid', () => expect(due([])).toBe(600))
+  it('Pay interest clears it; a voided payment does not', () => {
+    expect(due([t({})])).toBe(0)
+    expect(due([t({ voidedAt: 2 })])).toBe(600)
+  })
+  it("a custom payment's interest part counts; a smaller one leaves the rest due", () => {
+    expect(due([t({ amount: 250 })])).toBe(350)
+    expect(due([t({ amount: 900 })])).toBe(0)
+  })
+  it('only this month and this cycle count', () => {
+    expect(due([t({ month: 9 })])).toBe(600)
+    expect(due([t({ cycle: 2025 })])).toBe(600)
+    expect(due([t({ loanId: 'other' })])).toBe(600)
+  })
+  it("a carryover this month puts it in the balance; the Savings Loan's own carry-over mark does not", () => {
+    expect(due([t({ kind: 'note', amount: 0, carryover: true, loanBefore: { ...loanSnapshot(sl) } })])).toBe(0)
+    expect(due([t({ kind: 'note', amount: 0, carryover: true, loanBefore: { ...loanSnapshot(sl), status: 'withdrawn' } })])).toBe(600)
+  })
+  it('the unpaid total adds what is due this month', () => {
+    const u = unpaidLoans([sl], 'me', 1000, { txns: [], month: 10, cycle: 2026 })
+    expect(u).toMatchObject({ appTotal: 6600, interestDue: 600, total: 8200 })
+    expect(unpaidLoans([sl], 'me', 1000, { txns: [t({})], month: 10, cycle: 2026 }).total).toBe(7600)
   })
 })

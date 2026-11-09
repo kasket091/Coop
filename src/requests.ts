@@ -1,3 +1,4 @@
+import type { Txn } from './ledger'
 import { depositAmount, loanLimit, MONTHLY_LOANS, monthlyLoanError, monthsLeft, regularLoan, regularTerms, type Member, type MonthlyLoanType } from './rules'
 
 export type LoanType = 'regular' | MonthlyLoanType
@@ -118,10 +119,24 @@ export function requestStage(r: LoanRequest): string {
 }
 
 /** A member's unpaid loans: app loans approved but not marked paid, plus the balance typed from the old sheet. */
-export function unpaidLoans(all: LoanRequest[], memberId: string, sheetBalance = 0) {
+/** With `thisMonth`, the total also counts each loan's interest due this month until it is paid or carried over. */
+export function unpaidLoans(all: LoanRequest[], memberId: string, sheetBalance = 0, thisMonth?: { txns: Txn[]; month: number; cycle: number }) {
   const loans = all.filter((r) => r.borrowerId === memberId && r.status === 'approved')
   const appTotal = loans.reduce((t, r) => t + balanceOf(r), 0)
-  return { loans, appTotal, sheetBalance, total: appTotal + sheetBalance }
+  const due = thisMonth ? cents(loans.reduce((t, r) => t + interestDue(r, thisMonth.txns, thisMonth.month, thisMonth.cycle), 0)) : 0
+  return { loans, appTotal, interestDue: due, sheetBalance, total: cents(appTotal + due + sheetBalance) }
+}
+
+/**
+ * This month's interest still to pay on a loan: nothing once Pay interest (or a custom payment's interest part)
+ * covers it, or once it is carried over into the balance this month.
+ */
+export function interestDue(r: LoanRequest, txns: Txn[], month: number, cycle: number) {
+  const thisMonth = txns.filter((t) => t.loanId === r.id && !t.voidedAt && t.cycle === cycle && t.month === month)
+  // a loan carryover; not the carry-over mark that created a Savings Loan (its loan was not approved yet)
+  if (thisMonth.some((t) => t.carryover && t.loanBefore?.status === 'approved')) return 0
+  const paid = thisMonth.filter((t) => t.kind === 'interest').reduce((sum, t) => sum + t.amount, 0)
+  return cents(Math.max(0, monthInterest(r) - paid))
 }
 
 const cents = (x: number) => Math.round(x * 100) / 100

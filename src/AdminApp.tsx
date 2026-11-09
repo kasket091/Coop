@@ -5,7 +5,7 @@ import { Dashboard } from './Dashboard'
 import { MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
-import { balanceOf, canAdminApprove, customPayment, loanMonth, monthInterest, refLabel, unpaidLoans, type LoanRequest } from './requests'
+import { balanceOf, canAdminApprove, customPayment, interestDue, loanMonth, monthInterest, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { carryoverMonths } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
@@ -200,7 +200,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
             ? <p className="alert" role="status">Terminated {new Date(m.terminated.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}. <button className="link inline" onClick={restore}>Restore account</button></p>
             : flag && <div className="alert" role="status"><b>Should be terminated:</b> {flagReason} <span className="pay-buttons" style={{ marginTop: 8 }}><button className="btn danger" onClick={terminate}>Terminate</button></span></div>}
           {!m.founder && m.heads > 0 && <RecruiterLine m={m} recruiter={recruiter} board={members.filter((x) => x.founder && x.heads > 0 && x.uid !== m.uid)} year={year} onOpen={onOpen} />}
-          <UnpaidLoans m={m} requests={requests} year={year} />
+          <UnpaidLoans m={m} requests={requests} txns={txns} year={year} />
         </>} />
 
       {m.founder && (
@@ -365,8 +365,9 @@ function AddTxn({ m, year, onDone }: { m: StoredMember; year: number; onDone: (m
 }
 
 /** Total unpaid loans: app loans approved but not yet paid, plus the balance typed from the old Borrowers sheet. */
-function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanRequest[]; year: number }) {
-  const u = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0)
+function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: LoanRequest[]; txns: Txn[]; year: number }) {
+  const month = ledgerMonth(year)
+  const u = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0, { txns, month, cycle: year })
   const [balance, setBalance] = useState(String(m.sheetLoanBalance ?? 0))
   const [editing, setEditing] = useState(false)
   const [paying, setPaying] = useState<string | null>(null)
@@ -383,6 +384,7 @@ function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanReq
         <span>Unpaid loans</span>
         <b>{peso(u.total)}</b>
       </div>
+      {u.interestDue > 0 && <p className="note">Includes {peso(u.interestDue)} interest due this month.</p>}
       <ul className="unpaid-list">
         {u.loans.map((r) => (
           <li key={r.id}>
@@ -390,7 +392,9 @@ function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanReq
               {r.ref && <b className="ref">{refLabel(r)}</b>}<b className="loan-month">{loanMonth(r)}</b>{peso(balanceOf(r))} owed{balanceOf(r) !== r.amount ? ` (borrowed ${peso(r.amount)})` : ''}
               <small>
                 approved {new Date(r.decidedAt ?? r.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
-                {monthInterest(r) > 0 ? ` · this month's interest ${peso(monthInterest(r))}` : ` · ${r.quote}`}
+                {monthInterest(r) > 0
+                  ? interestDue(r, txns, month, year) > 0 ? ` · ${peso(interestDue(r, txns, month, year))} interest due this month` : ' · no interest due this month'
+                  : ` · ${r.quote}`}
                 {r.carryovers ? ` · carried over ${r.carryovers}×` : ''}{r.interestPayments ? ` · interest paid ${r.interestPayments}×` : ''}
               </small>
             </span>

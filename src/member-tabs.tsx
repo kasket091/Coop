@@ -4,11 +4,11 @@ import { PushSetting } from './push'
 import { peso } from './format'
 import type { Txn } from './ledger'
 import {
-  balanceOf, comakerMode, loanMonth, monthInterest, refLabel, requestStage, unpaidLoans, validateRequest, type LoanRequest, type LoanType,
+  balanceOf, comakerMode, interestDue, loanMonth, monthInterest, refLabel, requestStage, unpaidLoans, validateRequest, type LoanRequest, type LoanType,
 } from './requests'
 import { depositAmount, loanLimit, monthsLeft } from './rules'
 import {
-  changePassword, createRequest, decideAsComaker, listFounders, signOutUser, withdrawRequest, type StoredMember,
+  changePassword, createRequest, decideAsComaker, ledgerMonth, listFounders, signOutUser, withdrawRequest, type StoredMember,
 } from './store'
 import { Calculator, CONDITIONS, quoteText, termOptions, TYPES } from './tabs'
 
@@ -17,7 +17,8 @@ const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
 
 // ---------- Loans: remaining, active, requests, closed, transactions, new request, calculator ----------
 export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: number; mine: LoanRequest[]; txns: Txn[] }) {
-  const unpaid = unpaidLoans(mine, me.uid, me.sheetLoanBalance ?? 0)
+  const month = ledgerMonth(year)
+  const unpaid = unpaidLoans(mine, me.uid, me.sheetLoanBalance ?? 0, { txns, month, cycle: year })
   const pending = mine.filter((r) => r.status === 'pending')
   const closed = mine.filter((r) => r.status === 'paid' || r.status === 'declined' || r.status === 'withdrawn')
   return (
@@ -25,6 +26,7 @@ export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: num
       <h1 style={{ fontSize: 22 }}>My loans</h1>
       <div className={`unpaid ${unpaid.total > 0 ? 'owing' : ''}`} style={{ marginTop: 12 }}>
         <div className="unpaid-head"><span>Current loans remaining</span><b>{peso(unpaid.total)}</b></div>
+        {unpaid.interestDue > 0 && <p className="note" style={{ marginTop: 4 }}>Includes {peso(unpaid.interestDue)} interest due this month.</p>}
         {unpaid.sheetBalance > 0 && <p className="note" style={{ marginTop: 4 }}>Includes {peso(unpaid.sheetBalance)} from the old Borrowers sheet.</p>}
       </div>
 
@@ -38,7 +40,7 @@ export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: num
                 <RequestCard key={r.id} r={r}>
                   <ul className="rows" style={{ marginTop: 8 }}>
                     <li><span>Still owed</span><b>{peso(balanceOf(r))}</b></li>
-                    {monthInterest(r) > 0 && <li><span>This month's interest</span><b>{peso(monthInterest(r))}</b></li>}
+                    {monthInterest(r) > 0 && <li><span>This month's interest</span><b>{interestDue(r, txns, month, year) > 0 ? `${peso(interestDue(r, txns, month, year))} due` : 'None due'}</b></li>}
                     <li><span>Paid so far</span><b>{peso(sum(paid.map((t) => t.amount)))}</b></li>
                   </ul>
                 </RequestCard>
