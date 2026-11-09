@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { RECRUITS, recruiterOf, BOARD } from './accounts'
-import { carryoverMonths, ledgerFrom, monthRange, newestLiveForLoan, quarterTotals, type Txn } from './ledger'
+import { advancePayments, carryoverMonths, ledgerFrom, monthRange, newestLiveForLoan, quarterTotals, type Txn } from './ledger'
 
 const t = (over: Partial<Txn>): Txn => ({
   id: Math.random().toString(36), memberId: 'm', memberName: 'M', kind: 'savings', amount: 0, month: 0, cycle: 2026,
@@ -70,4 +70,19 @@ it('once its Savings Loan is paid, the carried amount moves into savings', () =>
   expect(l.carried[6]).toBe(0)
   // voiding the payoff puts it back to carried
   expect(ledgerFrom([carry, { ...settle, voidedAt: 1 }], 2026)).toMatchObject({ paid: expect.arrayContaining([0]), carried: expect.arrayContaining([6000]) })
+})
+
+it('advance savings: recorded before the month they are for began (Philippine time), newest first', () => {
+  const nov10 = Date.UTC(2026, 10, 10, 4) // Nov 10, noon in Manila
+  const list = advancePayments([
+    t({ id: 'dec', kind: 'savings', amount: 1000, month: 11, createdAt: nov10 }), // Dec paid in Nov: advance
+    t({ id: 'nov', kind: 'savings', amount: 1000, month: 10, createdAt: nov10 }), // Nov paid in Nov: on time
+    t({ id: 'oct', kind: 'savings', amount: 1000, month: 9, createdAt: nov10 }), // late
+    t({ id: 'void', kind: 'savings', amount: 1000, month: 11, createdAt: nov10, voidedAt: 1 }),
+    t({ id: 'sl', kind: 'savings', amount: 6000, month: 11, createdAt: nov10, loanId: 'x' }), // a Savings Loan, not paid money
+    t({ id: 'jan', kind: 'savings', amount: 1000, month: 0, cycle: 2026, createdAt: Date.UTC(2025, 11, 20) }), // paid last December
+    t({ id: 'nov30', kind: 'savings', amount: 1000, month: 11, createdAt: Date.UTC(2026, 10, 30, 15, 59) }), // Nov 30, 11:59 PM Manila
+    t({ id: 'dec1', kind: 'savings', amount: 1000, month: 11, createdAt: Date.UTC(2026, 10, 30, 16, 1) }), // Dec 1, 12:01 AM Manila
+  ], 2026)
+  expect(list.map((x) => x.id)).toEqual(['nov30', 'dec', 'jan'])
 })

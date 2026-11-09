@@ -6,7 +6,7 @@ import { dueDay, interestLine, MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
 import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext, loanMonth, loanPeriod, missedInterest, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
-import { carryoverMonths } from './ledger'
+import { advancePayments, carryoverMonths } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
 import { askText, askYes, tell } from './dialog'
@@ -52,7 +52,7 @@ export function AdminApp({ year }: { year: number }) {
       <p className="admin-flag">Admin</p>
       {!members ? <Loading />
         : tab === 'members' ? <Members members={members} requests={requests} txns={txns} year={year} />
-        : tab === 'loans' ? <LoansAdmin requests={requests} members={members} year={year} />
+        : tab === 'loans' ? <LoansAdmin requests={requests} members={members} txns={txns} year={year} />
         : tab === 'requests' ? <Requests requests={requests} year={year} />
         : tab === 'dashboard' ? <Dashboard members={members} txns={txns} year={year} />
         : <CoopAdmin members={members} summary={summary} year={year} />}
@@ -431,6 +431,26 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
   )
 }
 
+/** Advance Payment tab: savings recorded before the month they are for (recorded on each member's page). */
+function AdvanceList({ list, total, search }: { list: Txn[]; total: number; search: string }) {
+  const paidOn = (ms: number) => new Date(ms).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' })
+  return (
+    <div className="section">
+      <p className="note">Savings paid ahead of their month: {peso(total)} in all. Record one on the member's page: Record savings, with a later month picked.</p>
+      {!list.length ? <p className="note">{search ? `No advance payments for “${search}”.` : 'No advance payments yet.'}</p> : (
+        <ul className="rows panel">
+          {list.map((t) => (
+            <li key={t.id}>
+              <span>{t.memberName} · {MONTHS[t.month]} savings<small className="advance-sub">paid {paidOn(t.createdAt)}{t.note ? ` · ${t.note}` : ''}</small></span>
+              <b>{peso(t.amount)}</b>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /** Inline form: correct a loan's approval date; shows the overdue interest that will be added before saving. */
 function EditLoanDate({ r, txns, year, busy, onCancel, onSave }: {
   r: LoanRequest; txns: Txn[]; year: number; busy: boolean; onCancel: () => void; onSave: (at: number) => void
@@ -536,8 +556,8 @@ function Requests({ requests, year }: { requests: LoanRequest[]; year: number })
 }
 
 // ---------- loans: active and closed ----------
-function LoansAdmin({ requests, members, year }: { requests: LoanRequest[]; members: StoredMember[]; year: number }) {
-  const [view, setView] = useState<'active' | 'closed'>('active')
+function LoansAdmin({ requests, members, txns, year }: { requests: LoanRequest[]; members: StoredMember[]; txns: Txn[]; year: number }) {
+  const [view, setView] = useState<'advance' | 'active' | 'closed'>('active')
   const [q, setQ] = useState('')
   // loans approved before references existed get theirs (1FL, 2FL, …) the first time this tab opens
   // loan references for this cycle (13SL #14): numbers every loan once under the scheme, then only new ones
@@ -548,19 +568,25 @@ function LoansAdmin({ requests, members, year }: { requests: LoanRequest[]; memb
   useEffect(() => { if (requests.some(needsSavingsSettle)) settlePaidSavingsLoans(year).catch(() => {}) }, [requests, year])
   const active = requests.filter((r) => r.status === 'approved')
   const closed = requests.filter((r) => r.status === 'paid')
-  const list = (view === 'active' ? active : closed).filter((r) => r.borrowerName.toLowerCase().includes(q.trim().toLowerCase()))
+  const match = (name: string) => name.toLowerCase().includes(q.trim().toLowerCase())
+  const list = (view === 'active' ? active : closed).filter((r) => match(r.borrowerName))
+  // savings members paid ahead (Record savings on their page, with a later month picked)
+  const advance = advancePayments(txns, year)
+  const advanceShown = advance.filter((t) => match(t.memberName))
   const total = active.reduce((t, r) => t + balanceOf(r), 0)
   return (
     <section>
       <h1 style={{ fontSize: 22 }}>Loans</h1>
       <p className="plan">{peso(total)} owed on {active.length} app loan{active.length === 1 ? '' : 's'}</p>
       <div className="segmented" role="tablist" aria-label="Loan category">
+        <button role="tab" aria-selected={view === 'advance'} onClick={() => setView('advance')}>Advance Payment ({advance.length})</button>
         <button role="tab" aria-selected={view === 'active'} onClick={() => setView('active')}>Active Loans ({active.length})</button>
         <button role="tab" aria-selected={view === 'closed'} onClick={() => setView('closed')}>Closed Loans ({closed.length})</button>
       </div>
       <div className="field"><label htmlFor="lq">Search by name</label>
         <input id="lq" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" /></div>
-      {!list.length ? <p className="note section">{q.trim() ? `No ${view} loans for “${q.trim()}”.` : view === 'active' ? 'No active loans.' : 'No closed loans yet.'}</p> : (
+      {view === 'advance' ? <AdvanceList list={advanceShown} total={advance.reduce((t, x) => t + x.amount, 0)} search={q.trim()} />
+        : !list.length ? <p className="note section">{q.trim() ? `No ${view} loans for “${q.trim()}”.` : view === 'active' ? 'No active loans.' : 'No closed loans yet.'}</p> : (
         <ul className="requests">
           {list.map((r) => (
             <RequestCard key={r.id} r={r}>

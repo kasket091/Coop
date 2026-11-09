@@ -54,3 +54,14 @@ export function carryoverMonths(txns: Txn[], cycle: number): Map<string, Set<num
 
 export const monthRange = (a: number, b: number) =>
   Array.from({ length: Math.abs(b - a) + 1 }, (_, i) => Math.min(a, b) + i)
+
+/**
+ * Savings paid in advance: recorded (Record savings, with a later month picked) before the month they are for began,
+ * in Philippine time. Savings Loan entries and voided ones aren't money paid in advance. Newest first.
+ */
+export function advancePayments(txns: Txn[], cycle: number) {
+  const monthStarts = (m: number) => Date.UTC(cycle, m, 1) - 8 * 3600_000
+  return txns
+    .filter((t) => t.kind === 'savings' && !t.voidedAt && !t.loanId && !t.settles && t.cycle === cycle && t.createdAt < monthStarts(t.month))
+    .sort((a, b) => b.createdAt - a.createdAt)
+}
