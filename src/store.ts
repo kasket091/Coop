@@ -12,7 +12,7 @@ import {
 import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { auth, db, firebaseConfig } from './firebase'
 import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
-import { balanceOf, carryover, customPayment, interestDue, loanSnapshot, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
+import { balanceOf, carryover, customPayment, interestDue, loanSnapshot, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { feeTopUps, payFromSavings } from './termination'
@@ -224,6 +224,7 @@ function restoreLoan(tx: Transaction, loanId: string, b: LoanSnapshot) {
     status: b.status, balance: b.balance, principal: b.principal,
     carryovers: b.carryovers, interestPayments: b.interestPayments, customPayments: b.customPayments,
     paidAt: b.paidAt ?? deleteField(), decidedAt: b.decidedAt ?? deleteField(),
+    savingsSettled: b.savingsSettled ? true : deleteField(),
     ...(b.status === 'pending' ? { directApproval: deleteField() } : {}),
   })
 }
@@ -267,7 +268,8 @@ async function loanAction(id: string, year: number, act: (r: LoanRequest) => { u
     if (r.status !== 'approved') throw new Error('This loan is no longer open.')
     const { update, entries } = act(r)
     // a paid-off Savings Loan: the missed savings it covered now count as saved (voiding the payoff undoes it)
-    if (update.status === 'paid' && r.type === 'savings' && r.carriedMonth !== undefined) {
+    // (not when Pay For Savings already counted them)
+    if (update.status === 'paid' && r.type === 'savings' && r.carriedMonth !== undefined && !r.savingsSettled && !update.savingsSettled) {
       update.savingsSettled = true
       entries.push({ kind: 'savings', amount: r.amount, month: r.carriedMonth, settles: true, note: `${MONTH_NAMES[r.carriedMonth]} savings now saved: loan ${refLabel(r)} paid` })
     }
@@ -308,9 +310,23 @@ export const payLoanInterest = async (id: string, year: number) => {
     const p = payInterest(r, interestDue(r, lt, ledgerMonth(year), year))
     if (!(p.collected > 0)) throw new Error("This month's interest is already paid.")
     const off = p.update.balance < balanceOf(r)
-    return { update: p.update, entries: [{ kind: 'interest', amount: p.collected, note: off ? `Interest paid off the balance: now ${php(p.update.balance)} owed` : `This month's interest on ${php(balanceOf(r))}` }] }
+    const update: Record<string, string | number> = { ...p.update }
+    if (p.update.balance <= 0) Object.assign(update, { status: 'paid', paidAt: Date.now() })
+    return { update, entries: [{ kind: 'interest', amount: p.collected, note: off ? `Interest paid off the balance: now ${php(p.update.balance)} owed` : `This month's interest on ${php(balanceOf(r))}` }] }
   })
 }
+
+/** Pay For Savings: a Savings Loan's missed savings paid back. They count as saved for that month; the interest stays owed. */
+export const payForSavings = (id: string, year: number) =>
+  loanAction(id, year, (r) => {
+    const p = savingsPayback(r)
+    if (!p) throw new Error('The missed savings on this loan are already paid.')
+    const label = r.carriedMonth !== undefined ? `${MONTH_NAMES[r.carriedMonth]} savings` : 'Missed savings'
+    return {
+      update: { ...p.update, ...(p.update.status ? { paidAt: Date.now() } : {}) },
+      entries: [{ kind: 'savings', amount: p.amount, month: r.carriedMonth, settles: true, note: `${label} paid: ${php(p.amount)} (loan ${refLabel(r)})${p.update.balance > 0 ? `; ${php(p.update.balance)} interest still owed` : ''}` }],
+    }
+  })
 
 /** Any amount paid this month: interest first, then carried-over interest, then the amount borrowed. */
 export const loanCustomPayment = async (id: string, year: number, amount: number) => {
@@ -569,7 +585,7 @@ export async function terminateMember(m: StoredMember, reason: string, year: num
   const loansDeducted = Math.round((plan.payments.reduce((t, p) => t + p.amount, 0) + plan.sheetPaid) * 100) / 100
   // Savings Loans paid in full just now count as saved; the fee is 20% of that total and the payout is what's left
   const settled = plan.payments.filter((p) => p.full).map((p) => open.find((r) => r.id === p.id)!)
-    .filter((r) => r.type === 'savings' && r.carriedMonth !== undefined).reduce((t, r) => t + r.amount, 0)
+    .filter((r) => r.type === 'savings' && r.carriedMonth !== undefined && !r.savingsSettled).reduce((t, r) => t + r.amount, 0)
   const total = Math.round((saved + settled) * 100) / 100
   const fee = Math.round(total * 0.2 * 100) / 100
   const payout = Math.max(0, Math.round((total - fee - loansDeducted) * 100) / 100)

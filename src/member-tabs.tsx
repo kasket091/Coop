@@ -35,7 +35,7 @@ export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: num
         {!unpaid.loans.length ? <p className="note">No active loans.</p> : (
           <ul className="requests">
             {unpaid.loans.map((r) => {
-              const paid = txns.filter((t) => t.loanId === r.id && !t.voidedAt && (t.kind === 'interest' || t.kind === 'principal'))
+              const paid = txns.filter((t) => t.loanId === r.id && !t.voidedAt && (t.kind === 'interest' || t.kind === 'principal' || t.settles))
               return (
                 <RequestCard key={r.id} r={r}>
                   <ul className="rows" style={{ marginTop: 8 }}>

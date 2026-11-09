@@ -5,7 +5,7 @@ import { Dashboard } from './Dashboard'
 import { MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
-import { balanceOf, canAdminApprove, customPayment, interestDue, loanMonth, monthInterest, payInterest, refLabel, unpaidLoans, type LoanRequest } from './requests'
+import { balanceOf, canAdminApprove, customPayment, interestDue, loanMonth, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { carryoverMonths } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
@@ -15,7 +15,7 @@ import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, bookFeeTopUps, needsSavingsSettle, settlePaidSavingsLoans, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
+  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, bookFeeTopUps, payForSavings, needsSavingsSettle, settlePaidSavingsLoans, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, recomputeSummary, renameMember, resetLogin, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
   type StoredMember, type Summary, type Txn, rebuildAllLedgers, setRecruiter,
@@ -386,7 +386,7 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
       </div>
       {u.interestDue > 0 && <p className="note">Includes {peso(u.interestDue)} interest due this month.</p>}
       <ul className="unpaid-list">
-        {u.loans.map((r) => { const due = interestDue(r, txns, month, year); const pi = payInterest(r, due); return (
+        {u.loans.map((r) => { const due = interestDue(r, txns, month, year); const pi = payInterest(r, due); const sp = savingsPayback(r); return (
           <li key={r.id}>
             <span>
               {r.ref && <b className="ref">{refLabel(r)}</b>}<b className="loan-month">{loanMonth(r)}</b>{peso(balanceOf(r))} owed{balanceOf(r) !== r.amount ? ` (borrowed ${peso(r.amount)})` : ''}
@@ -403,7 +403,11 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
                 onClick={async () => await askYes(`Mark ${m.name}'s loan as fully paid (${peso(balanceOf(r))})?`) && run(r.id, () => markLoanPaid(r.id, year))}>
                 Mark as paid
               </button>
-              {monthInterest(r) > 0 && (<>
+              {sp && <button className="btn-mini" disabled={busy === r.id}
+                onClick={async () => await askYes(`${m.name} paid the ${peso(sp.amount)} missed ${r.carriedMonth !== undefined ? MONTHS[r.carriedMonth] + ' ' : ''}savings? It counts as saved for that month${sp.update.balance > 0 ? `, and ${peso(sp.update.balance)} interest stays owed on this loan` : ', and this loan closes'}.`) && run(r.id, () => payForSavings(r.id, year))}>
+                Pay For Savings
+              </button>}
+              {(monthInterest(r) > 0 || pi.collected > 0) && (<>
                 {pi.collected > 0 && <button className="btn-mini" disabled={busy === r.id}
                   onClick={async () => await askYes(`${m.name} paid ${peso(pi.collected)} interest? What they owe on this loan goes from ${peso(balanceOf(r) + due)} to ${peso(pi.update.balance)}.`) && run(r.id, () => payLoanInterest(r.id, year))}>
                   Pay interest

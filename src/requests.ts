@@ -163,11 +163,25 @@ export const carryover = (r: LoanRequest, due = monthInterest(r)) => ({ balance:
 export function payInterest(r: LoanRequest, due = monthInterest(r)) {
   const interestPayments = (r.interestPayments ?? 0) + 1
   if (due > 0) return { collected: due, update: { balance: balanceOf(r), interestPayments } }
-  const inBalance = cents(Math.min(monthInterest(r), Math.max(0, balanceOf(r) - principalOf(r))))
+  const carried = Math.max(0, balanceOf(r) - principalOf(r))
+  // once nothing more accrues (a Savings Loan whose savings are paid back), all the interest left is paid at once
+  const inBalance = cents(monthInterest(r) > 0 ? Math.min(monthInterest(r), carried) : carried)
   return { collected: inBalance, update: { balance: cents(balanceOf(r) - inBalance), interestPayments } }
 }
 
 export const principalOf = (r: LoanRequest) => r.principal ?? r.amount
+
+/**
+ * Pay For Savings: the member pays back a Savings Loan's missed savings. They count as saved for that month (the
+ * caller records them, settled), the interest stays owed, and the loan closes if nothing else is owed. Null when
+ * there is nothing to pay back.
+ */
+export function savingsPayback(r: LoanRequest) {
+  const amount = r.type === 'savings' ? cents(principalOf(r)) : 0
+  if (!(amount > 0)) return null
+  const balance = cents(Math.max(0, balanceOf(r) - amount))
+  return { amount, update: { balance, principal: 0, savingsSettled: true, ...(balance <= 0 ? { status: 'paid' as const } : {}) } }
+}
 
 /** Interest collected when a loan is fully paid: carried-over interest, plus a regular loan's flat interest. */
 export function settleInterest(r: LoanRequest): number {
@@ -205,7 +219,7 @@ export function customPayment(r: LoanRequest, paid: number, due = monthInterest(
 
 /** A loan's state before an admin action, saved on its transaction so a void can put it back. */
 export const loanSnapshot = (r: LoanRequest) => ({
-  status: r.status, balance: balanceOf(r), principal: principalOf(r),
+  status: r.status, balance: balanceOf(r), principal: principalOf(r), ...(r.savingsSettled ? { savingsSettled: true } : {}),
   carryovers: r.carryovers ?? 0, interestPayments: r.interestPayments ?? 0, customPayments: r.customPayments ?? 0,
   ...(r.paidAt ? { paidAt: r.paidAt } : {}), ...(r.decidedAt ? { decidedAt: r.decidedAt } : {}),
 })

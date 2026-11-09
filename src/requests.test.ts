@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { depositAmount, type Member } from './rules'
 import type { Txn } from './ledger'
 import {
-  canAdminApprove, carryover, comakerMode, customPayment, interestDue, loanSnapshot, monthInterest, payInterest, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
+  canAdminApprove, carryover, comakerMode, customPayment, interestDue, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
 } from './requests'
 
 const zeros = () => Array(12).fill(0)
@@ -218,5 +218,23 @@ describe("a Savings Loan's upfront 10% is its first month's interest", () => {
   })
   it('nothing to pay when this month is paid and no interest sits in the balance', () => {
     expect(payInterest({ ...sl, balance: 6000 }, 0).collected).toBe(0)
+  })
+})
+
+describe('Pay For Savings: the missed savings of a Savings Loan, paid back', () => {
+  const sl = { ...req('approved', 'approved', 'approved'), id: 'sl', type: 'savings', amount: 6000, principal: 6000, balance: 6600, upfront: true, carriedMonth: 10 } as LoanRequest
+
+  it('pays the ₱6,000; only the ₱600 interest stays owed', () => {
+    expect(savingsPayback(sl)).toEqual({ amount: 6000, update: { balance: 600, principal: 0, savingsSettled: true } })
+  })
+  it('closes the loan when the interest was already paid', () => {
+    expect(savingsPayback({ ...sl, balance: 6000 })).toEqual({ amount: 6000, update: { balance: 0, principal: 0, savingsSettled: true, status: 'paid' } })
+  })
+  it('nothing to pay once the savings are paid back', () => expect(savingsPayback({ ...sl, principal: 0, balance: 600 })).toBeNull())
+  it('only for Savings Loans', () => expect(savingsPayback({ ...sl, type: 'flex' })).toBeNull())
+  it('afterwards no more interest builds up, and Pay interest pays the last ₱600', () => {
+    const after = { ...sl, balance: 600, principal: 0 }
+    expect(monthInterest(after)).toBe(0)
+    expect(payInterest(after, 0)).toMatchObject({ collected: 600, update: { balance: 0 } })
   })
 })
