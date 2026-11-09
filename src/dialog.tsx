@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 
 // In-page replacements for window.prompt/confirm: some browsers and in-app webviews (and the preview pane) block those.
-type Ask = { text: string; input?: string; notice?: boolean; resolve: (v: string | null) => void }
+type Ask = { text: string; input?: string; notice?: boolean; yes?: string; resolve: (v: string | null) => void }
 let show: ((a: Ask) => void) | null = null
-const ask = (text: string, input?: string, notice = false) => new Promise<string | null>((resolve) => (show ? show({ text, input, notice, resolve }) : resolve(null)))
+const ask = (text: string, input?: string, notice = false, yes?: string) => new Promise<string | null>((resolve) => (show ? show({ text, input, notice, yes, resolve }) : resolve(null)))
 
 /** Asks for a typed answer (e.g. a reason); null when cancelled. */
 export const askText = (text: string, value = '') => ask(text, value)
 /** Yes / Cancel. */
-export const askYes = async (text: string) => (await ask(text)) !== null
+export const askYes = async (text: string, yes?: string) => (await ask(text, undefined, false, yes)) !== null
 /** A message with just OK, shown where the person is looking (e.g. why a void was refused). */
 export const tell = async (text: string) => { await ask(text, undefined, true) }
 
@@ -29,7 +29,7 @@ export function DialogHost() {
           <p id="ask-text">{cur.text}</p>
           {typed && <input autoFocus aria-labelledby="ask-text" value={value} onChange={(e) => setValue(e.target.value)} />}
           <div className="actions">
-            <button className="btn" disabled={typed && !value.trim()}>{typed || cur.notice ? 'OK' : 'Yes'}</button>
+            <button className="btn" disabled={typed && !value.trim()}>{typed || cur.notice ? 'OK' : cur.yes ?? 'Yes'}</button>
             {!cur.notice && <button type="button" className="copy" onClick={() => close(null)}>Cancel</button>}
           </div>
         </form>

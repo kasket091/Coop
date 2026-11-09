@@ -6,7 +6,7 @@ import { dueDay, interestLine, MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
 import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext, loanMonth, loanPeriod, missedInterest, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
-import { advancePayments, carryoverMonths } from './ledger'
+import { advancePayments, carryoverMonths, isAdvance } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
 import { askText, askYes, tell } from './dialog'
@@ -223,7 +223,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
         {m.terminated
           ? <p className="note">This account is terminated, so no transactions can be recorded. Restore the account first.</p>
           : <>
-            <AddTxn m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
+            <AddTxn m={m} year={year} unpaid={unpaidTotal} onDone={(text) => setMsg({ ok: true, text })} />
             <CarrySavings m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
           </>}
         {msg && <p className={msg.ok ? 'success' : 'alert'} role="status">{msg.text}</p>}
@@ -333,7 +333,7 @@ function RecruiterLine({ m, recruiter, board, year, onOpen }: {
 
 /** Record savings or interest received; it is added to the history (mistakes are voided, never edited). */
 /** Record savings received (loan interest is recorded with the buttons on each unpaid loan). */
-function AddTxn({ m, year, onDone }: { m: StoredMember; year: number; onDone: (msg: string) => void }) {
+function AddTxn({ m, year, unpaid, onDone }: { m: StoredMember; year: number; unpaid: number; onDone: (msg: string) => void }) {
   const [month, setMonth] = useState(ledgerMonth(year))
   const [amount, setAmount] = useState(String(m.heads * 500))
   const [note, setNote] = useState('')
@@ -342,6 +342,9 @@ function AddTxn({ m, year, onDone }: { m: StoredMember; year: number; onDone: (m
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     const n = Number(amount.replace(/[^\d.]/g, '')) || 0
+    // paying savings ahead while loans are still unpaid: the admin confirms first
+    if (n > 0 && unpaid > 0 && isAdvance(month, year, Date.now())
+      && !await askYes(`${m.name} still has unpaid loans (${peso(unpaid)} owed). Record ${peso(n)} as advance savings for ${MONTHS[month]} anyway?`, 'Proceed')) return
     setBusy(true); setError(null)
     try {
       await addTransaction(m, n, month, note.trim(), year)

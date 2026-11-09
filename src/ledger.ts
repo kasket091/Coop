@@ -60,8 +60,10 @@ export const monthRange = (a: number, b: number) =>
  * in Philippine time. Savings Loan entries and voided ones aren't money paid in advance. Newest first.
  */
 export function advancePayments(txns: Txn[], cycle: number) {
-  const monthStarts = (m: number) => Date.UTC(cycle, m, 1) - 8 * 3600_000
   return txns
-    .filter((t) => t.kind === 'savings' && !t.voidedAt && !t.loanId && !t.settles && t.cycle === cycle && t.createdAt < monthStarts(t.month))
+    .filter((t) => t.kind === 'savings' && !t.voidedAt && !t.loanId && !t.settles && t.cycle === cycle && isAdvance(t.month, cycle, t.createdAt))
     .sort((a, b) => b.createdAt - a.createdAt)
 }
+
+/** Savings for `month` recorded at `at` are paid in advance: before that month began (Philippine time). */
+export const isAdvance = (month: number, cycle: number, at: number) => at < Date.UTC(cycle, month, 1) - 8 * 3600_000
