@@ -525,20 +525,26 @@ const payLoanFromSavings = (id: string, year: number, amount: number, full: bool
  */
 export async function terminateMember(m: StoredMember, reason: string, year: number, loans: LoanRequest[]) {
   const saved = Math.round(m.paid.reduce((a, b) => a + b, 0) * 100) / 100
-  const fee = Math.round(saved * 0.2 * 100) / 100
-  const afterFee = Math.round((saved - fee) * 100) / 100
+  // what's left after 20% of the deposits pays the loans (the loan formula is unchanged)
+  const afterFee = Math.round(saved * 0.8 * 100) / 100
   const open = loans.filter((r) => r.borrowerId === m.uid && r.status === 'approved').sort((a, b) => (a.decidedAt ?? a.createdAt) - (b.decidedAt ?? b.createdAt))
   const plan = payFromSavings(open.map((r) => ({ id: r.id, balance: balanceOf(r) })), m.sheetLoanBalance ?? 0, afterFee)
   for (const p of plan.payments) await payLoanFromSavings(p.id, year, p.amount, p.full)
   const loansDeducted = Math.round((plan.payments.reduce((t, p) => t + p.amount, 0) + plan.sheetPaid) * 100) / 100
+  // Savings Loans paid in full just now count as saved; the fee is 20% of that total and the payout is what's left
+  const settled = plan.payments.filter((p) => p.full).map((p) => open.find((r) => r.id === p.id)!)
+    .filter((r) => r.type === 'savings' && r.carriedMonth !== undefined).reduce((t, r) => t + r.amount, 0)
+  const total = Math.round((saved + settled) * 100) / 100
+  const fee = Math.round(total * 0.2 * 100) / 100
+  const payout = Math.max(0, Math.round((total - fee - loansDeducted) * 100) / 100)
   const now = Date.now()
   const batch = writeBatch(db)
   if (plan.sheetPaid > 0) {
     batch.update(doc(db, 'members', m.uid), { sheetLoanBalance: Math.round(((m.sheetLoanBalance ?? 0) - plan.sheetPaid) * 100) / 100 })
     batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0, note: `Old sheet loan balance: ${php(plan.sheetPaid)} paid from savings at termination` }, year, now))
   }
-  if (fee > 0) batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'interest', amount: fee, note: `Termination fee: 20% of ${php(saved)} savings` }, year, now + 1))
-  batch.update(doc(db, 'members', m.uid), { terminated: { at: now, reason, saved, fee, loansDeducted, payout: plan.payout, stillOwed: plan.stillOwed } })
+  if (fee > 0) batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'interest', amount: fee, note: `Termination fee: 20% of ${php(total)} savings` }, year, now + 1))
+  batch.update(doc(db, 'members', m.uid), { terminated: { at: now, reason, saved: total, fee, loansDeducted, payout, stillOwed: plan.stillOwed } })
   batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0, note: `Account terminated: ${reason}` }, year, now + 2))
   await batch.commit()
   await rebuildLedger(m.uid, year)

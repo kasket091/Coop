@@ -10,16 +10,18 @@ const text = (paid: number[]) => {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
 }
 
-it('a Savings Loan paid at termination shows in total savings; the payout math stays on what was deposited', () => {
+it('the card: total savings, 20% of it as the fee, the loans paid from savings, and what is left', () => {
+  // 18,000 deposited + a 6,000 Savings Loan paid from savings at termination = 24,000 saved
   const t = text([6000, 6000, 6000, 6000, 0, 0, 0, 0, 0, 0, 0, 0])
   expect(t).toContain('Total savings ₱24,000')
-  expect(t).toContain('Savings Loan paid off, now saved −₱6,000')
-  expect(t).toContain('Savings at termination ₱18,000')
-  expect(t).toContain('Termination payout ₱7,800')
+  expect(t).toContain('Less 20% termination fee −₱4,800')
+  expect(t).toContain('now closed) −₱6,600')
+  expect(t).toContain('Termination payout ₱12,600')
 })
 
-it('with nothing settled the card is unchanged', () => {
-  const t = text([6000, 6000, 6000, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-  expect(t).toContain('Total savings ₱18,000')
-  expect(t).not.toContain('now saved')
+it("the user's example: 60,000 saved, 12,000 fee", () => {
+  const t = text(Array(10).fill(6000).concat([0, 0]))
+  expect(t).toContain('Total savings ₱60,000')
+  expect(t).toContain('Less 20% termination fee −₱12,000')
+  expect(t).toContain('Termination payout ₱41,400')
 })

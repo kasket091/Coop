@@ -82,22 +82,18 @@ export function MySavings({ m, coop, year, action, extra, termination, onMonth }
 function TerminationCard({ live, reason, unpaid, ...frozen }: {
   live: number; reason: string; unpaid: number; saved?: number; fee?: number; loansDeducted?: number; payout?: number; stillOwed?: number
 }) {
-  // the figures saved at termination (loans were then paid and closed); older terminations are worked out live
-  const t = frozen.payout !== undefined
-    ? { saved: frozen.saved ?? live, fee: frozen.fee ?? 0, loansDeducted: frozen.loansDeducted ?? 0, payout: frozen.payout, stillOwed: frozen.stillOwed ?? unpaid }
+  // total savings now (Savings Loans paid at termination count as saved); the fee is 20% of it; the loans deducted
+  // are the ones paid from savings at termination (older terminations work them out live); the payout is what's left
+  const fee = Math.round(live * 0.2 * 100) / 100
+  const t = frozen.loansDeducted !== undefined
+    ? { saved: live, fee, loansDeducted: frozen.loansDeducted, payout: Math.max(0, Math.round((live - fee - frozen.loansDeducted) * 100) / 100), stillOwed: frozen.stillOwed ?? unpaid }
     : terminationPayout(live, unpaid)
-  // Savings Loans paid at termination now count as saved: show that total, keeping the payout math on what was deposited
-  const settled = Math.round((live - t.saved) * 100) / 100
   return (
     <div className="terminated">
       <h2>Account terminated</h2>
       <p className="reason">{reason}</p>
       <ul className="rows">
-        {settled > 0 && <>
-          <li><span>Total savings</span><b>{peso(live)}</b></li>
-          <li className="sub"><span>Savings Loan paid off, now saved</span><b>−{peso(settled)}</b></li>
-        </>}
-        <li><span>{settled > 0 ? 'Savings at termination' : 'Total savings'}</span><b>{peso(t.saved)}</b></li>
+        <li><span>Total savings</span><b>{peso(t.saved)}</b></li>
         <li><span>Less 20% termination fee</span><b>−{peso(t.fee)}</b></li>
         <li><span>Less unpaid loans (paid from savings, now closed)</span><b>−{peso(t.loansDeducted)}</b></li>
         <li className="final"><span>Termination payout</span><b>{peso(t.payout)}</b></li>
