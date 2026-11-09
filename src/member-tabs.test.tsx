@@ -14,3 +14,12 @@ it('Pay Now shows only when the member owes something', () => {
   expect(html([loan, { ...loan, id: 'l2' }]).match(/Pay Now/g)).toHaveLength(3)
   expect(html([])).not.toContain('Pay Now')
 })
+
+it('payment transactions: the newest 5, with Show all for the rest', () => {
+  const t = (i: number) => ({ id: `t${i}`, memberId: 'me', memberName: 'Ana Reyes', kind: 'savings' as const, amount: 1000, month: 0, cycle: 2026, note: `entry ${i}`, createdAt: 100 - i })
+  const page = (n: number) => renderToStaticMarkup(<LoansTab me={me} year={2026} mine={[]} txns={Array.from({ length: n }, (_, i) => t(i))} onPay={() => {}} />)
+  expect(page(7)).toContain('Show all (7)')
+  expect(page(7)).toContain('entry 4')
+  expect(page(7)).not.toContain('entry 5')
+  expect(page(5)).not.toContain('Show all')
+})

@@ -19,6 +19,7 @@ const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
 export function LoansTab({ me, year, mine, txns, onPay }: { me: StoredMember; year: number; mine: LoanRequest[]; txns: Txn[]; onPay: () => void }) {
   const now = Date.now()
   const unpaid = unpaidLoans(mine, me.uid, me.sheetLoanBalance ?? 0, { txns, now })
+  const [showAll, setShowAll] = useState(false) // newest 5 first; the rest on request
   const pending = mine.filter((r) => r.status === 'pending')
   const closed = mine.filter((r) => r.status === 'paid' || r.status === 'declined' || r.status === 'withdrawn')
   return (
@@ -62,7 +63,8 @@ export function LoansTab({ me, year, mine, txns, onPay }: { me: StoredMember; ye
 
       <div className="section">
         <h2>Payment transactions</h2>
-        <TxnList txns={txns} />
+        <TxnList txns={showAll ? txns : txns.slice(0, 5)} />
+        {txns.length > 5 && <button className="copy wide" onClick={() => setShowAll(!showAll)}>{showAll ? 'Show fewer' : `Show all (${txns.length})`}</button>}
       </div>
 
       <div className="section">
