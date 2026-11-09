@@ -341,3 +341,7 @@ input.locked { background: var(--cream); color: var(--navy); font-weight: 700; }
 .status-bar.offline { background: var(--red); color: #fff; }
 .status-bar.update { background: var(--cyan); color: var(--navy); }
 .status-bar .link { color: inherit; font-weight: 700; text-decoration: underline; }
+
+/* links styled as buttons (handbook download) */
+a.btn, a.copy { display: inline-flex; align-items: center; justify-content: center; padding: 0 16px; text-decoration: none; }
+a.btn.wide { display: flex; text-align: center; }

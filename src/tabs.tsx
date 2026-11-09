@@ -1,3 +1,4 @@
+import { HandbookDownload } from './handbook'
 import { useState } from 'react'
 import { peso } from './format'
 import type { LoanType } from './requests'
@@ -152,6 +153,7 @@ export function PayRules() {
           <li>Leaving early costs a 20% termination fee on your savings.</li>
         </ul>
       </div>
+      <HandbookDownload />
       <p className="tagline">Save Together, Help Each Other, Share the Rewards.</p>
     </section>
   )

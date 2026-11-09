@@ -1,0 +1,13 @@
+rules_version = '2';
+
+// The coop handbook: anyone signed in can download it; only the admin can upload (a PDF up to 25 MB).
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /handbook/handbook.pdf {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email == 'admin@hilas-coop.app'
+        && request.resource.contentType == 'application/pdf'
+        && request.resource.size < 25 * 1024 * 1024;
+    }
+  }
+}
