@@ -1,6 +1,6 @@
 // Whole-database backups: one JSON file the admin keeps, used to restore after a clear or a mistake.
 
-export const BACKUP_COLLECTIONS = ['members', 'founders', 'logins', 'loanRequests', 'transactions', 'settings', 'coop', 'counters'] as const
+export const BACKUP_COLLECTIONS = ['members', 'founders', 'logins', 'loanRequests', 'transactions', 'settings', 'coop', 'counters', 'notes'] as const
 export type BackupCollection = (typeof BACKUP_COLLECTIONS)[number]
 export type BackupDoc = { id: string; data: Record<string, unknown> }
 export type Backup = { app: 'hilas-coop'; version: 1; exportedAt: number; collections: Partial<Record<BackupCollection, BackupDoc[]>> }

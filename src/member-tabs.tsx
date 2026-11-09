@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { ADMIN_MEMBER_NAME } from './accounts'
 import { PushSetting } from './push'
 import { interestLine, peso } from './format'
@@ -85,10 +85,21 @@ const KIND_LABEL: Record<Txn['kind'], string> = {
 }
 
 /** A member's money history, newest first. Voided entries stay visible, crossed out. */
-export function TxnList({ txns, onVoid, highlight }: { txns: Txn[]; onVoid?: (t: Txn) => void; highlight?: { month: number; cycle: number } }) {
+export function TxnList({ txns, onVoid, highlight, rows }: {
+  txns: Txn[]; onVoid?: (t: Txn) => void; highlight?: { month: number; cycle: number }
+  /** show this many entries, the rest by scrolling inside the list (rows differ in height, so it is measured) */
+  rows?: number
+}) {
+  const list = useRef<HTMLUListElement>(null)
+  useLayoutEffect(() => {
+    const ul = list.current
+    if (!ul || !rows) return
+    const cut = ul.children[rows] as HTMLElement | undefined
+    ul.style.maxHeight = cut ? `${cut.offsetTop - ul.offsetTop}px` : ''
+  }, [txns, rows])
   if (!txns.length) return <p className="note">No transactions yet.</p>
   return (
-    <ul className="txns">
+    <ul className={`txns${rows ? ' scroll' : ''}`} ref={list}>
       {txns.map((t) => (
         <li key={t.id} className={[t.voidedAt && 'voided', t.month === highlight?.month && t.cycle === highlight.cycle && 'hl'].filter(Boolean).join(' ') || undefined}>
           <span className="txn-main">

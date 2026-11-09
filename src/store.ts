@@ -143,6 +143,14 @@ export const watchSummary = (cb: (s: Summary | null) => void) =>
 export const watchCycle = (cb: (year: number) => void) =>
   onSnapshot(doc(db, 'settings', 'cycle'), (s) => cb((s.data()?.year as number) ?? DEFAULT_CYCLE_YEAR))
 
+/** The admin's private notes on members, by member uid. Members can't read them (firestore.rules). */
+export type Note = { name: string; text: string; updatedAt: number }
+export const watchNotes = (cb: (notes: Record<string, Note>) => void) =>
+  onSnapshot(collection(db, 'notes'), (s) => cb(Object.fromEntries(s.docs.map((d) => [d.id, d.data() as Note]))))
+/** Saving empty text removes the note. */
+export const saveNote = (uid: string, name: string, text: string) =>
+  text.trim() ? setDoc(doc(db, 'notes', uid), { name, text: text.trim(), updatedAt: Date.now() }) : deleteDoc(doc(db, 'notes', uid))
+
 /** The handbook: a Google Drive (or any https) link the admin pastes; members open it in a new tab. */
 export type Handbook = { url: string; updatedAt: number } | null
 export const watchHandbook = (cb: (h: Handbook) => void) =>

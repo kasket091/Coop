@@ -350,3 +350,14 @@ a.btn.wide { display: flex; text-align: center; }
 /* admin Loans: three segments fit a phone */
 .segmented button { padding: 4px 6px; font-size: 13px; line-height: 1.2; }
 .advance-sub { display: block; font-size: 13px; font-weight: 400; color: var(--muted); }
+
+/* admin member page: 8 entries tall, the rest scroll inside (TxnList rows) */
+.txns.scroll { overflow-y: auto; overscroll-behavior: contain; }
+.ask textarea { display: block; width: 100%; padding: 10px 12px; margin-bottom: 14px; border: 1.5px solid var(--line); border-radius: var(--radius); font: inherit; resize: vertical; }
+
+/* Notes tab */
+.notes-pick { padding: 4px 14px 14px; margin-top: 4px; }
+.note-row .advance-sub { white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.note-row > span { min-width: 0; }
+/* four segments: two rows on a phone */
+@media (max-width: 480px) { .segmented:has(> :nth-child(4)) { grid-auto-flow: row; grid-template-columns: 1fr 1fr; } }
