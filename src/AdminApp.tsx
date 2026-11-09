@@ -386,7 +386,8 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
       </div>
       {u.interestDue > 0 && <p className="note">Includes {peso(u.interestDue)} interest due this month.</p>}
       <ul className="unpaid-list">
-        {u.loans.map((r) => { const due = interestDue(r, txns, month, year); const pi = payInterest(r, due); const sp = savingsPayback(r); return (
+        {u.loans.map((r) => { const due = interestDue(r, txns, month, year); const pi = payInterest(r, due); // once the interest is paid, Mark as paid does the same (closes it, the savings count as saved)
+          const sp = savingsPayback(r); const showSp = !!sp && sp.update.balance > 0; return (
           <li key={r.id}>
             <span>
               {r.ref && <b className="ref">{refLabel(r)}</b>}<b className="loan-month">{loanMonth(r)}</b>{peso(balanceOf(r))} owed{balanceOf(r) !== r.amount ? ` (borrowed ${peso(r.amount)})` : ''}
@@ -403,8 +404,8 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
                 onClick={async () => await askYes(`Mark ${m.name}'s loan as fully paid (${peso(balanceOf(r))})?`) && run(r.id, () => markLoanPaid(r.id, year))}>
                 Mark as paid
               </button>
-              {sp && <button className="btn-mini" disabled={busy === r.id}
-                onClick={async () => await askYes(`${m.name} paid the ${peso(sp.amount)} missed ${r.carriedMonth !== undefined ? MONTHS[r.carriedMonth] + ' ' : ''}savings? It counts as saved for that month${sp.update.balance > 0 ? `, and ${peso(sp.update.balance)} interest stays owed on this loan` : ', and this loan closes'}.`) && run(r.id, () => payForSavings(r.id, year))}>
+              {sp && showSp && <button className="btn-mini" disabled={busy === r.id}
+                onClick={async () => await askYes(`${m.name} paid the ${peso(sp.amount)} missed ${r.carriedMonth !== undefined ? MONTHS[r.carriedMonth] + ' ' : ''}savings? It counts as saved for that month, and ${peso(sp.update.balance)} interest stays owed on this loan.`) && run(r.id, () => payForSavings(r.id, year))}>
                 Pay For Savings
               </button>}
               {(monthInterest(r) > 0 || pi.collected > 0) && (<>
