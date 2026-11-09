@@ -18,7 +18,7 @@ import {
   addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, bookFeeTopUps, needsSavingsSettle, settlePaidSavingsLoans, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, recomputeSummary, renameMember, resetLogin, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
-  type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers, setRecruiter,
+  type StoredMember, type Summary, type Txn, rebuildAllLedgers, setRecruiter,
 } from './store'
 
 type Tab = 'members' | 'loans' | 'requests' | 'dashboard' | 'coop'
@@ -398,10 +398,6 @@ function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanReq
               <button className="btn-mini" disabled={busy === r.id}
                 onClick={async () => await askYes(`Mark ${m.name}'s loan as fully paid (${peso(balanceOf(r))})?`) && run(r.id, () => markLoanPaid(r.id, year))}>
                 Mark as paid
-              </button>
-              <button className="btn-mini" disabled={busy === r.id}
-                onClick={async () => await askYes(`Close this loan WITHOUT recording any money? Use this only for a test loan or one entered by mistake.`) && run(r.id, () => closeLoanNoMoney(r.id))}>
-                Close (no money)
               </button>
               {monthInterest(r) > 0 && (<>
                 <button className="btn-mini" disabled={busy === r.id}

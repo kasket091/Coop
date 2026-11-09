@@ -281,17 +281,6 @@ async function loanAction(id: string, year: number, act: (r: LoanRequest) => { u
   await rebuildLedger(memberId, year)
 }
 
-/** Closes a loan that has no money recorded against it (e.g. a test loan), without recording any money. */
-export async function closeLoanNoMoney(id: string) {
-  const live = asTxns((await getDocs(query(txns, where('loanId', '==', id)))).docs).filter((t) => !t.voidedAt)
-  if (live.length) throw new Error('This loan has payments recorded. Void them first, or use Mark as paid.')
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, 'loanRequests', id)
-    if ((await tx.get(ref)).data()?.status !== 'approved') throw new Error('This loan is no longer open.')
-    tx.update(ref, { status: 'paid', paidAt: Date.now(), closedNoMoney: true })
-  })
-}
-
 const php = (n: number) => `₱${n.toLocaleString('en-PH', { maximumFractionDigits: 2 })}`
 
 /** Fully paid: closes the loan; carried-over (or a regular loan's flat) interest is recorded as collected. */
