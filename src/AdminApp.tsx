@@ -9,7 +9,7 @@ import { balanceOf, canAdminApprove, customPayment, interestDue, loanMonth, mont
 import { carryoverMonths } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
-import { askText, askYes } from './dialog'
+import { askText, askYes, tell } from './dialog'
 import { PushSetting } from './push'
 import { HandbookAdmin } from './handbook'
 import { coopSummary } from './rules'
@@ -188,7 +188,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
     const reason = await askText(`Void this ${t.kind} entry${t.amount ? ` of ${peso(t.amount)}` : ''}? Type the reason:`)
     if (!reason) return
     setMsg(null)
-    try { await voidTransaction(t, reason, year); setMsg({ ok: true, text: 'Voided. Totals updated.' }) } catch (err) { setMsg({ ok: false, text: (err as Error).message }) }
+    try { await voidTransaction(t, reason, year); setMsg({ ok: true, text: 'Voided. Totals updated.' }) } catch (err) { await tell((err as Error).message) }
   }
 
   return (

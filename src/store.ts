@@ -240,7 +240,10 @@ export async function voidTransaction(t: Txn, reason: string, year: number): Pro
   if (t.loanId) {
     const loanTxns = asTxns((await getDocs(query(txns, where('loanId', '==', t.loanId)))).docs)
     const newest = newestLiveForLoan(loanTxns, t.loanId)
-    if (newest && newest.createdAt !== t.createdAt) throw new Error('Void the newer entries for this loan first.')
+    if (newest && newest.createdAt !== t.createdAt) {
+      const what = `${newest.kind === 'note' ? 'note' : `${php(newest.amount)} ${newest.kind}`} from ${new Date(newest.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}`
+      throw new Error(`This loan has a newer entry (${what}: "${newest.note}"). Void that one first, then this one.`)
+    }
     group.splice(0, 1, ...loanTxns.filter((x) => !x.voidedAt && x.createdAt === t.createdAt))
   }
   await runTransaction(db, async (tx) => {
