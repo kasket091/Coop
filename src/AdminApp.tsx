@@ -434,7 +434,7 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
   )
 }
 
-/** Notes tab: the admin's private notes on members. Add Notes finds a member by name; Edit notes opens a text box. */
+/** Notes tab: the admin's private notes on members. Create Notes finds a member without notes by name; Add/Edit notes opens a text box. */
 function NotesPanel({ members, notes, search }: { members: StoredMember[]; notes: Record<string, Note>; search: string }) {
   const [adding, setAdding] = useState(false)
   const [who, setWho] = useState('')
@@ -444,21 +444,22 @@ function NotesPanel({ members, notes, search }: { members: StoredMember[]; notes
     if (text === null) return
     try { await saveNote(uid, name, text); setAdding(false); setWho('') } catch (err) { await tell((err as Error).message || "Couldn't save. Check your connection.") }
   }
-  const found = who.trim() ? members.filter((m) => has(m.name, who.trim())) : []
+  // members who already have notes are edited from the list below, so only the others are offered here
+  const found = who.trim() ? members.filter((m) => !notes[m.uid] && has(m.name, who.trim())) : []
   const saved = Object.entries(notes).filter(([, n]) => has(n.name, search)).sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
   const when = (ms: number) => new Date(ms).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' })
   return (
     <div className="section">
       <p className="note">Only you (the admin) can see these notes.</p>
-      {!adding ? <button className="btn wide" onClick={() => setAdding(true)}>Add Notes</button> : (
+      {!adding ? <button className="btn wide" onClick={() => setAdding(true)}>Create Notes</button> : (
         <div className="panel notes-pick">
           <div className="field"><label htmlFor="nw">Member's name</label>
             <input id="nw" type="search" autoFocus value={who} onChange={(e) => setWho(e.target.value)} autoComplete="off" placeholder="Type a name" /></div>
-          {who.trim() && !found.length && <p className="note">No member named “{who.trim()}”.</p>}
+          {who.trim() && !found.length && <p className="note">No member without notes named “{who.trim()}”.</p>}
           {found.length > 0 && (
             <ul className="rows">
               {found.map((m) => (
-                <li key={m.uid}><span>{m.name}</span><button className="btn-mini" onClick={() => edit(m.uid, m.name)}>Edit notes</button></li>
+                <li key={m.uid}><span>{m.name}</span><button className="btn-mini" onClick={() => edit(m.uid, m.name)}>Add Notes</button></li>
               ))}
             </ul>
           )}
@@ -466,7 +467,7 @@ function NotesPanel({ members, notes, search }: { members: StoredMember[]; notes
         </div>
       )}
       {!saved.length ? <p className="note section">{search ? `No notes for “${search}”.` : 'No notes yet.'}</p> : (
-        <ul className="rows panel section">
+        <ul className="rows panel notes-list">
           {saved.map(([uid, n]) => (
             <li key={uid} className="note-row">
               <span><b>{n.name}</b><small className="advance-sub">{when(n.updatedAt)} · {n.text}</small></span>

@@ -361,3 +361,4 @@ a.btn.wide { display: flex; text-align: center; }
 .note-row > span { min-width: 0; }
 /* four segments: two rows on a phone */
 @media (max-width: 480px) { .segmented:has(> :nth-child(4)) { grid-auto-flow: row; grid-template-columns: 1fr 1fr; } }
+.notes-list { margin-top: 14px; }
