@@ -5,7 +5,8 @@ import {
   signInWithEmailAndPassword, signOut, updatePassword,
 } from 'firebase/auth'
 import {
-  addDoc, collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, updateDoc, where, writeBatch,
+  addDoc as addDocRaw, collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction as runTransactionRaw,
+  setDoc as setDocRaw, updateDoc as updateDocRaw, where, writeBatch as writeBatchRaw,
   type DocumentReference, type Transaction, type Unsubscribe,
 } from 'firebase/firestore'
 import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
@@ -16,6 +17,19 @@ import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { feeTopUps, payFromSavings } from './termination'
 import { BACKUP_COLLECTIONS, makeBackup, type Backup } from './backup'
+
+// Offline, Firestore would queue writes and send them later (a payment or void landing hours after it was typed):
+// every write here refuses instead, and the screen shows the message. Reads still show the last loaded figures.
+export const OFFLINE_MESSAGE = "You're offline, so nothing was saved. Try again when you're connected."
+const online = () => { if (typeof navigator !== 'undefined' && !navigator.onLine) throw new Error(OFFLINE_MESSAGE) }
+const guard = <F extends (...a: never[]) => unknown>(f: F) => ((...a: Parameters<F>) => { online(); return f(...a) }) as F
+const addDoc = guard(addDocRaw), setDoc = guard(setDocRaw), updateDoc = guard(updateDocRaw), runTransaction = guard(runTransactionRaw)
+const writeBatch: typeof writeBatchRaw = (...a) => {
+  const b = writeBatchRaw(...a)
+  const commit = b.commit.bind(b)
+  b.commit = () => { online(); return commit() }
+  return b
+}
 
 export type { Summary }
 /** `rebate` is this member's own top-borrower rebate (0 unless they are the top borrower). */

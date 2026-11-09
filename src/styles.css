@@ -338,3 +338,9 @@ input.locked { background: var(--cream); color: var(--navy); font-weight: 700; }
 .ask::backdrop { background: rgba(28, 27, 87, 0.45); }
 .ask p { margin: 0 0 14px; line-height: 1.45; }
 .ask input { display: block; width: 100%; min-height: 48px; padding: 0 14px; margin-bottom: 14px; border: 1.5px solid var(--line); border-radius: var(--radius); font: inherit; }
+
+/* offline / new-version bars (pwa.tsx) */
+.status-bar { position: sticky; top: 0; z-index: 30; margin: 0; padding: 10px 16px; font-size: 14px; font-weight: 600; text-align: center; }
+.status-bar.offline { background: var(--red); color: #fff; }
+.status-bar.update { background: var(--cyan); color: var(--navy); }
+.status-bar .link { color: inherit; font-weight: 700; text-decoration: underline; }
