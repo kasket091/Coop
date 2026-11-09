@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { depositAmount, type Member } from './rules'
 import type { Txn } from './ledger'
 import {
-  canAdminApprove, carryover, comakerMode, customPayment, endedPeriods, interestDue, loanDeadline, loanPeriod, missedInterest, savingsMonthOf, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
+  canAdminApprove, carryover, comakerMode, customPayment, endedPeriods, interestDue, loanDeadline, loanPeriod, missedInterest, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
 } from './requests'
 
 const zeros = () => Array(12).fill(0)
@@ -313,10 +313,5 @@ describe("Savings Loan: each 8th adds the month's 10% until paid in full", () =>
     expect(unpaidLoans([{ ...oct, borrowerId: 'me' }], 'me', 0, { txns: [], now: at(2026, 9, 20) }).total).toBe(6600)
     expect(unpaidLoans([{ ...oct, borrowerId: 'me', balance: 7200 }], 'me', 0, { txns: [], now: at(2026, 10, 10) }).total).toBe(7200)
   })
-  it("interest paid up to the 7th belongs to the month before (the savings month)", () => {
-    expect(savingsMonthOf(at(2026, 10, 1))).toBe(9) // Nov 1 → October
-    expect(savingsMonthOf(at(2026, 10, 7, 23))).toBe(9) // Nov 7 → October
-    expect(savingsMonthOf(at(2026, 10, 8, 0) + 60_000)).toBe(10) // Nov 8 → November
-    expect(savingsMonthOf(at(2026, 0, 5))).toBe(0) // Jan 1–7 stays January (no December of last cycle)
-  })
+
 })

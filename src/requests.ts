@@ -154,12 +154,6 @@ function periodAt(r: LoanRequest, n: number): LoanPeriod {
   return { n, startsAt, dueAt, endsAt: dueAt + DAY, last: dueAt === deadline }
 }
 
-/** A Savings Loan's month, like savings: the 1st–7th still belongs to the month before (Nov 1 → October). */
-export function savingsMonthOf(ms: number) {
-  const d = new Date(ms + PH)
-  return d.getUTCDate() <= 7 && d.getUTCMonth() > 0 ? d.getUTCMonth() - 1 : d.getUTCMonth()
-}
-
 /** Every loan is paid in full by December 15 of its year (dividends are released Dec 16). */
 export function loanDeadline(r: LoanRequest) {
   return Date.UTC(new Date((r.decidedAt ?? r.createdAt) + PH).getUTCFullYear(), 11, 15) - PH
