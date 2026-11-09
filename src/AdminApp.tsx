@@ -13,7 +13,7 @@ import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
+  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, needsSavingsSettle, settlePaidSavingsLoans, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, recomputeSummary, renameMember, resetLogin, saveHeads, saveSheetLoanBalance,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
   type StoredMember, type Summary, type Txn, closeLoanNoMoney, rebuildAllLedgers, setRecruiter,
@@ -210,8 +210,12 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
 
       <div className="section">
         <h2>Transactions</h2>
-        <AddTxn m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
-        <CarrySavings m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
+        {m.terminated
+          ? <p className="note">This account is terminated, so no transactions can be recorded. Restore the account first.</p>
+          : <>
+            <AddTxn m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
+            <CarrySavings m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
+          </>}
         {msg && <p className={msg.ok ? 'success' : 'alert'} role="status">{msg.text}</p>}
         <TxnList txns={txns} onVoid={askVoid} />
       </div>
@@ -511,6 +515,8 @@ function LoansAdmin({ requests, members, year }: { requests: LoanRequest[]; memb
   useEffect(() => { ensureRefs(year).catch(() => {}) }, [requests, year])
   // Savings Loans from before the 10% was added upfront: corrected once (also stops their carried savings counting)
   useEffect(() => { if (requests.some((r) => r.type === 'savings' && r.status === 'approved' && !r.upfront)) fixSavingsLoans(year).catch(() => {}) }, [requests, year])
+  // Savings Loans paid before paid-off SLs counted as savings: moved into savings once
+  useEffect(() => { if (requests.some(needsSavingsSettle)) settlePaidSavingsLoans(year).catch(() => {}) }, [requests, year])
   const active = requests.filter((r) => r.status === 'approved')
   const closed = requests.filter((r) => r.status === 'paid')
   const list = view === 'active' ? active : closed

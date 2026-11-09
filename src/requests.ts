@@ -31,6 +31,8 @@ export type LoanRequest = {
   no?: number
   /** for a savings loan (SL): the month whose missed savings it covers */
   carriedMonth?: number
+  /** a paid Savings Loan whose carried savings were moved into savings */
+  savingsSettled?: boolean
   /** a Savings Loan's 10% was added to the balance at once */
   upfront?: boolean
   /** closed by the admin without recording money (e.g. a test loan) */

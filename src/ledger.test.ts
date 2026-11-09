@@ -61,3 +61,13 @@ it('carried-over savings (tied to a Savings Loan) are shown, not counted as save
   expect(l.paid[5]).toBe(6000)
   expect(l.carried[6]).toBe(5500)
 })
+
+it('once its Savings Loan is paid, the carried amount moves into savings', () => {
+  const carry = t({ kind: 'savings', amount: 6000, month: 6, loanId: 'SL1' })
+  const settle = t({ kind: 'savings', amount: 6000, month: 6, loanId: 'SL1', settles: true })
+  const l = ledgerFrom([carry, settle], 2026)
+  expect(l.paid[6]).toBe(6000)
+  expect(l.carried[6]).toBe(0)
+  // voiding the payoff puts it back to carried
+  expect(ledgerFrom([carry, { ...settle, voidedAt: 1 }], 2026)).toMatchObject({ paid: expect.arrayContaining([0]), carried: expect.arrayContaining([6000]) })
+})

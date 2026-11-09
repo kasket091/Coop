@@ -162,6 +162,7 @@ export async function rebuildLedger(memberId: string, year: number): Promise<voi
 /** Admin records savings or interest received (not tied to a loan). */
 export async function addTransaction(m: StoredMember, kind: 'savings' | 'interest', amount: number, month: number, note: string, year: number) {
   if (!(amount > 0)) throw new Error('Enter an amount above ₱0.')
+  if (m.terminated) throw new Error('This account is terminated. Restore it to record transactions.')
   await setDoc(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind, amount, month, note }, year, Date.now()))
   await rebuildLedger(m.uid, year)
 }
@@ -227,13 +228,18 @@ export async function adminDecide(id: string, status: 'approved' | 'declined', y
  * can be voided) and updates the loan. Interest actually paid counts toward the dividend; carried interest
  * only once it is paid.
  */
-async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean }[] }) {
+async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number | boolean>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean; month?: number; settles?: boolean }[] }) {
   let memberId = ''
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
     const r = { ...((await tx.get(ref)).data() as LoanRequest), id }
     if (r.status !== 'approved') throw new Error('This loan is no longer open.')
     const { update, entries } = act(r)
+    // a paid-off Savings Loan: the missed savings it covered now count as saved (voiding the payoff undoes it)
+    if (update.status === 'paid' && r.type === 'savings' && r.carriedMonth !== undefined) {
+      update.savingsSettled = true
+      entries.push({ kind: 'savings', amount: r.amount, month: r.carriedMonth, settles: true, note: `${MONTH_NAMES[r.carriedMonth]} savings now saved: loan ${refLabel(r)} paid` })
+    }
     const now = Date.now()
     tx.update(ref, update)
     for (const e of entries) {
@@ -440,6 +446,29 @@ export async function fixSavingsLoans(year: number): Promise<void> {
   for (const id of borrowers) await rebuildLedger(id, year)
 }
 
+/** Savings Loans paid before the rule above existed: their carried savings now count as saved (once). */
+export const needsSavingsSettle = (r: LoanRequest) =>
+  r.type === 'savings' && r.status === 'paid' && !r.closedNoMoney && !r.savingsSettled && r.carriedMonth !== undefined
+
+export async function settlePaidSavingsLoans(year: number): Promise<void> {
+  const borrowers = new Set<string>()
+  for (const r of asRequests((await getDocs(query(requests, where('type', '==', 'savings')))).docs).filter(needsSavingsSettle)) {
+    await runTransaction(db, async (tx) => {
+      const ref = doc(db, 'loanRequests', r.id)
+      const live = { ...((await tx.get(ref)).data() as LoanRequest), id: r.id }
+      if (!needsSavingsSettle(live)) return
+      tx.update(ref, { savingsSettled: true })
+      // no loanBefore: voiding this only moves the amount back to carried, the loan stays paid
+      tx.set(doc(txns), txnRecord({
+        memberId: live.borrowerId, memberName: live.borrowerName, kind: 'savings', amount: live.amount, month: live.carriedMonth, loanId: r.id, settles: true,
+        note: `${MONTH_NAMES[live.carriedMonth!]} savings now saved: loan ${refLabel(live)} paid`,
+      }, year, Date.now()))
+    })
+    borrowers.add(r.borrowerId)
+  }
+  for (const id of borrowers) await rebuildLedger(id, year)
+}
+
 /**
  * Loan references for the cycle (13SL #14). The first time, every loan approved this cycle is numbered in approval
  * order under this scheme; after that, only loans missing a reference get one.
@@ -463,7 +492,7 @@ export async function ensureRefs(year: number): Promise<void> {
 }
 
 /** Pays a loan from savings at termination: in full (closes it) or in part (stays active with the rest owed). */
-type LoanActionResult = { update: Record<string, string | number>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean }[] }
+type LoanActionResult = { update: Record<string, string | number | boolean>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean; month?: number; settles?: boolean }[] }
 
 const payLoanFromSavings = (id: string, year: number, amount: number, full: boolean) =>
   loanAction(id, year, (r): LoanActionResult => {

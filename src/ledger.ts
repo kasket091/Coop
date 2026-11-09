@@ -9,6 +9,8 @@ export type Txn = {
   loanBefore?: LoanSnapshot
   /** marks a month where the member's interest was carried over (shown red on the dashboard) */
   carryover?: boolean
+  /** a Savings Loan was paid off: its carried amount now counts as saved */
+  settles?: boolean
 }
 
 const cents = (x: number) => Math.round(x * 100) / 100
@@ -21,7 +23,10 @@ export function ledgerFrom(txns: Txn[], cycle: number) {
   const paid = Array<number>(12).fill(0), interest = Array<number>(12).fill(0), carried = Array<number>(12).fill(0)
   for (const t of txns) {
     if (t.voidedAt || t.cycle !== cycle) continue
-    if (t.kind === 'savings' && t.loanId) carried[t.month] = cents(carried[t.month] + t.amount)
+    if (t.kind === 'savings' && t.settles) {
+      carried[t.month] = cents(carried[t.month] - t.amount)
+      paid[t.month] = cents(paid[t.month] + t.amount)
+    } else if (t.kind === 'savings' && t.loanId) carried[t.month] = cents(carried[t.month] + t.amount)
     else if (t.kind === 'savings') paid[t.month] = cents(paid[t.month] + t.amount)
     if (t.kind === 'interest') interest[t.month] = cents(interest[t.month] + t.amount)
   }
