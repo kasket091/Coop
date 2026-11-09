@@ -345,3 +345,4 @@ input.locked { background: var(--cream); color: var(--navy); font-weight: 700; }
 /* links styled as buttons (handbook download) */
 a.btn, a.copy { display: inline-flex; align-items: center; justify-content: center; padding: 0 16px; text-decoration: none; }
 a.btn.wide { display: flex; text-align: center; }
+.handbook-link { word-break: break-all; text-align: right; font-weight: 600; }

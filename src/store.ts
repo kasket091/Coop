@@ -142,6 +142,12 @@ export const watchSummary = (cb: (s: Summary | null) => void) =>
 export const watchCycle = (cb: (year: number) => void) =>
   onSnapshot(doc(db, 'settings', 'cycle'), (s) => cb((s.data()?.year as number) ?? DEFAULT_CYCLE_YEAR))
 
+/** The handbook: a Google Drive (or any https) link the admin pastes; members open it in a new tab. */
+export type Handbook = { url: string; updatedAt: number } | null
+export const watchHandbook = (cb: (h: Handbook) => void) =>
+  onSnapshot(doc(db, 'settings', 'handbook'), (s) => cb(s.exists() ? (s.data() as { url: string; updatedAt: number }) : null), () => cb(null))
+export const saveHandbookLink = (url: string) => setDoc(doc(db, 'settings', 'handbook'), { url, updatedAt: Date.now() })
+
 export async function listFounders(): Promise<{ id: string; name: string }[]> {
   const snap = await getDocs(collection(db, 'founders'))
   return snap.docs.map((d) => ({ id: d.id, name: d.data().name as string })).sort((a, b) => a.name.localeCompare(b.name))

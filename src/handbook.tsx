@@ -1,79 +1,68 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { saveHandbookLink, watchHandbook, type Handbook } from './store'
 
-export type HandbookInfo = { url: string; name: string; size: number; updated: number }
-export const MAX_HANDBOOK_MB = 25
-
-/** Why a chosen file can't be the handbook, or null. */
-export function handbookProblem(f: { name: string; type: string; size: number }): string | null {
-  if (f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf')) return 'The handbook must be a PDF file.'
-  if (f.size > MAX_HANDBOOK_MB * 1024 * 1024) return `That file is over ${MAX_HANDBOOK_MB} MB. Save a smaller PDF and try again.`
-  if (f.size === 0) return 'That file is empty.'
+/** Why a pasted link can't be the handbook, or null. Only https links, so it can't run anything in the app. */
+export function handbookLinkProblem(text: string): string | null {
+  let url: URL
+  try { url = new URL(text.trim()) } catch { return 'Paste the full link, starting with https://' }
+  if (url.protocol !== 'https:') return 'The link must start with https://'
   return null
 }
 
-const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`
 const when = (ms: number) => new Date(ms).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })
-const load = () => import('./handbook-files')
 
-/** Loads the current handbook; `undefined` while loading, `null` when there is none. */
 function useHandbook() {
-  const [info, setInfo] = useState<HandbookInfo | null | undefined>(undefined)
-  const [error, setError] = useState<string | null>(null)
-  const refresh = () => load().then((h) => h.handbookInfo()).then(setInfo, () => { setInfo(null); setError("Couldn't load the handbook. Check your connection.") })
-  useEffect(() => { refresh() }, [])
-  return { info, error, setError, refresh }
+  const [h, setH] = useState<Handbook | undefined>(undefined)
+  useEffect(() => watchHandbook(setH), [])
+  return h
 }
 
-/** Members: Pay & Rules tab, at the bottom. */
+/** Members: Pay & Rules tab, at the bottom. Opens the handbook in a new tab to read or download. */
 export function HandbookDownload() {
-  const { info, error } = useHandbook()
-  if (info === undefined) return null
+  const h = useHandbook()
+  if (h === undefined) return null
   return (
     <div className="section">
       <h2>Handbook</h2>
-      {info
-        ? <a className="btn wide" href={info.url} target="_blank" rel="noopener">Download the handbook (PDF, {mb(info.size)})</a>
-        : <p className="note">{error ?? 'The handbook will be here once the admin uploads it.'}</p>}
+      {h ? <a className="btn wide" href={h.url} target="_blank" rel="noopener noreferrer">Open the handbook</a>
+        : <p className="note">The handbook will be here once the admin adds it.</p>}
     </div>
   )
 }
 
-/** Admin: Coop tab. Shows the current handbook and uploads a new one (it replaces the old). */
+/** Admin: Coop tab. Shows the current handbook link and saves a new one. */
 export function HandbookAdmin() {
-  const { info, error, setError, refresh } = useHandbook()
+  const h = useHandbook()
+  const [link, setLink] = useState('')
   const [busy, setBusy] = useState(false)
-  const [done, setDone] = useState(false)
-  const picker = useRef<HTMLInputElement>(null)
-  const choose = async (e: ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]
-    e.target.value = ''
-    if (!f) return
-    setError(null); setDone(false)
-    const problem = handbookProblem(f)
-    if (problem) return setError(problem)
-    setBusy(true)
-    try { await (await load()).uploadHandbook(f); await refresh(); setDone(true) } catch (err) { setError((err as Error).message || "Couldn't upload. Check your connection.") } finally { setBusy(false) }
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const save = async (e: FormEvent) => {
+    e.preventDefault()
+    const problem = handbookLinkProblem(link)
+    if (problem) return setMsg({ ok: false, text: problem })
+    setBusy(true); setMsg(null)
+    try { await saveHandbookLink(link.trim()); setLink(''); setMsg({ ok: true, text: 'Saved. Members see it on Pay & Rules.' }) }
+    catch (err) { setMsg({ ok: false, text: (err as Error).message || "Couldn't save. Check your connection." }) } finally { setBusy(false) }
   }
   return (
-    <div className="section">
+    <form className="section" onSubmit={save} noValidate>
       <h2>Handbook</h2>
-      {info === undefined ? <p className="note">Loading…</p> : info ? (
-        <ul className="rows panel">
-          <li><span>File</span><b>{info.name}</b></li>
-          <li><span>Uploaded</span><b>{when(info.updated)}</b></li>
-          <li><span>Size</span><b>{mb(info.size)}</b></li>
-        </ul>
-      ) : <p className="note">No handbook uploaded yet. Members see a Download button on Pay &amp; Rules once you upload one.</p>}
-      <div className="actions">
-        {info && <a className="copy" href={info.url} target="_blank" rel="noopener">Download</a>}
-        <button className="btn" disabled={busy} onClick={() => picker.current?.click()}>
-          {busy ? 'Uploading…' : info ? 'Upload new handbook' : 'Upload handbook'}
-        </button>
-        <input ref={picker} type="file" accept="application/pdf,.pdf" onChange={choose} hidden />
+      {h === undefined ? <p className="note">Loading…</p> : h ? (
+        <>
+          <ul className="rows panel">
+            <li><span>Link</span><b className="handbook-link">{h.url}</b></li>
+            <li><span>Updated</span><b>{when(h.updatedAt)}</b></li>
+          </ul>
+          <div className="actions"><a className="copy" href={h.url} target="_blank" rel="noopener noreferrer">Open</a></div>
+        </>
+      ) : <p className="note">No handbook yet. Members see an Open the handbook button on Pay &amp; Rules once you add the link.</p>}
+      <div className="field">
+        <label htmlFor="hb">{h ? 'New Google Drive link' : 'Google Drive link'}</label>
+        <input id="hb" type="url" inputMode="url" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://drive.google.com/…" autoComplete="off" />
       </div>
-      <p className="note">PDF only, up to {MAX_HANDBOOK_MB} MB. A new upload replaces the current one for everyone.</p>
-      {done && <p className="success" role="status">Handbook uploaded. Members can download it now.</p>}
-      {error && <p className="alert" role="alert">{error}</p>}
-    </div>
+      <p className="note">In Google Drive, set the file's sharing to "Anyone with the link" (Viewer) so members can open it without asking.</p>
+      {msg && <p className={msg.ok ? 'success' : 'alert'} role="status">{msg.text}</p>}
+      <button className="btn wide" disabled={busy || !link.trim()}>{busy ? 'Saving…' : 'Save link'}</button>
+    </form>
   )
 }
