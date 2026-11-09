@@ -51,7 +51,7 @@ export function MemberApp({ uid, year }: { uid: string; year: number }) {
       {tab === 'savings' && <><MySavings m={me} coop={summaryFor(summary, me)} year={year}
         termination={me.terminated ? { ...me.terminated, unpaid: unpaidLoans(mine, uid, me.sheetLoanBalance ?? 0).total } : undefined} />
         <CoopSection summary={summary} /></>}
-      {tab === 'loans' && <LoansTab me={me} year={year} mine={mine} txns={txns} />}
+      {tab === 'loans' && <LoansTab me={me} year={year} mine={mine} txns={txns} onPay={() => { setTab('pay'); scrollTo(0, 0) }} />}
       {tab === 'alerts' && me.founder && <AlertsTab me={me} asked={asked} />}
       {tab === 'pay' && <PayRules />}
       {tab === 'account' && <AccountTab me={me} />}

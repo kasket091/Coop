@@ -16,7 +16,7 @@ const fmtDate = (ms: number) => new Date(ms).toLocaleDateString('en-PH', { month
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
 
 // ---------- Loans: remaining, active, requests, closed, transactions, new request, calculator ----------
-export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: number; mine: LoanRequest[]; txns: Txn[] }) {
+export function LoansTab({ me, year, mine, txns, onPay }: { me: StoredMember; year: number; mine: LoanRequest[]; txns: Txn[]; onPay: () => void }) {
   const now = Date.now()
   const unpaid = unpaidLoans(mine, me.uid, me.sheetLoanBalance ?? 0, { txns, now })
   const pending = mine.filter((r) => r.status === 'pending')
@@ -27,6 +27,7 @@ export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: num
       <div className={`unpaid ${unpaid.total > 0 ? 'owing' : ''}`} style={{ marginTop: 12 }}>
         <div className="unpaid-head"><span>Current loans remaining</span><b>{peso(unpaid.total)}</b></div>
         {unpaid.interestDue > 0 && <p className="note" style={{ marginTop: 4 }}>Includes {peso(unpaid.interestDue)} interest not yet paid (see each loan for its due date).</p>}
+        {unpaid.total > 0 && <button className="btn wide" onClick={onPay}>Pay Now</button>}
       </div>
 
       <div className="section">
