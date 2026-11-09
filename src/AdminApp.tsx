@@ -5,7 +5,7 @@ import { Dashboard } from './Dashboard'
 import { dueDay, MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
-import { balanceOf, canAdminApprove, customPayment, interestDue, loanMonth, loanPeriod, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
+import { balanceOf, canAdminApprove, customPayment, interestDue, loanMonth, loanPeriod, missedInterest, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { carryoverMonths } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
@@ -16,7 +16,7 @@ import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
-  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, bookFeeTopUps, payForSavings, needsSavingsSettle, settlePaidSavingsLoans, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
+  addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, bookFeeTopUps, payForSavings, needsSavingsSettle, settlePaidSavingsLoans, setLoanDate, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, recomputeSummary, renameMember, resetLogin,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
   type StoredMember, type Summary, type Txn, rebuildAllLedgers, setRecruiter,
@@ -366,12 +366,13 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
   const now = Date.now()
   const u = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0, { txns, now })
   const [paying, setPaying] = useState<string | null>(null)
+  const [dating, setDating] = useState<string | null>(null)
   const [payAmount, setPayAmount] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key); setError(null)
-    try { await fn(); setPaying(null); setPayAmount('') } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
+    try { await fn(); setPaying(null); setDating(null); setPayAmount('') } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
   }
   return (
     <div className={`unpaid ${u.total > 0 ? 'owing' : ''}`}>
@@ -408,16 +409,18 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
                   onClick={async () => await askYes(`${m.name} paid ${peso(pi.collected)} interest? What they owe on this loan goes from ${peso(balanceOf(r) + due)} to ${peso(pi.update.balance)}.`) && run(r.id, () => payLoanInterest(r.id, year))}>
                   Pay interest
                 </button>}
-                {due > 0 && <button className="btn-mini" disabled={busy === r.id}
-                  onClick={async () => await askYes(`Carry over: add the ${peso(due)} interest due ${dueDay(period.dueAt)} to the balance, making it ${peso(balanceOf(r) + due)}?`) && run(r.id, () => carryOverLoan(r.id, year))}>
-                  Carryover
-                </button>}
                 <button className="btn-mini" disabled={busy === r.id} aria-expanded={paying === r.id}
-                  onClick={() => { setPaying(paying === r.id ? null : r.id); setPayAmount('') }}>
+                  onClick={() => { setPaying(paying === r.id ? null : r.id); setDating(null); setPayAmount('') }}>
                   Advance/Custom Payment
                 </button>
               </>)}
+              {r.type !== 'savings' && <button className="btn-mini" disabled={busy === r.id} aria-expanded={dating === r.id}
+                onClick={() => { setDating(dating === r.id ? null : r.id); setPaying(null) }}>
+                Edit date
+              </button>}
             </span>
+            {dating === r.id && <EditLoanDate r={r} txns={txns} year={year} busy={busy === r.id}
+              onCancel={() => setDating(null)} onSave={(at) => run(r.id, () => setLoanDate(r.id, year, at))} />}
             {paying === r.id && <CustomPay r={r} due={due} amount={payAmount} onAmount={setPayAmount} busy={busy === r.id}
               onCancel={() => setPaying(null)}
               onRecord={(n) => run(r.id, () => loanCustomPayment(r.id, year, n))} />}
@@ -425,6 +428,33 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
         ) })}
       </ul>
       {error && <p className="alert" role="alert">{error}</p>}
+    </div>
+  )
+}
+
+/** Inline form: correct a loan's approval date; shows the overdue interest that will be added before saving. */
+function EditLoanDate({ r, txns, year, busy, onCancel, onSave }: {
+  r: LoanRequest; txns: Txn[]; year: number; busy: boolean; onCancel: () => void; onSave: (at: number) => void
+}) {
+  const ymd = (ms: number) => new Date(ms + 8 * 3600_000).toISOString().slice(0, 10) // Manila date, YYYY-MM-DD
+  const [value, setValue] = useState(ymd(r.decidedAt ?? r.createdAt))
+  const [y, mo, d] = value.split('-').map(Number)
+  const at = y ? Date.UTC(y, mo - 1, d, 4) : 0 // noon in Manila
+  const valid = !!y && y === year && at <= Date.now()
+  const missed = valid ? missedInterest({ ...r, decidedAt: at }, txns) : null
+  return (
+    <div className="custom-pay">
+      <label htmlFor={`ld-${r.id}`}>Approval date</label>
+      <input id={`ld-${r.id}`} type="date" value={value} min={`${year}-01-01`} max={ymd(Date.now())} onChange={(e) => setValue(e.target.value)} />
+      <p className="note" role="status">
+        {!valid ? `Choose a date in ${year}, not in the future.`
+          : missed ? `${missed.entries.length} month${missed.entries.length === 1 ? '' : 's'} of interest not paid by ${missed.entries.map((e) => dueDay(e.dueAt)).join(', ')} will be added: ${peso(missed.balance - balanceOf(r))}, so ${peso(missed.balance)} owed.`
+          : `First interest due ${dueDay(loanPeriod({ ...r, decidedAt: at }, at).dueAt)}. No overdue interest to add.`}
+      </p>
+      <span className="pay-buttons">
+        <button className="btn" disabled={busy || !valid || value === ymd(r.decidedAt ?? r.createdAt)} onClick={() => onSave(at)}>Save date</button>
+        <button className="copy" onClick={onCancel}>Cancel</button>
+      </span>
     </div>
   )
 }

@@ -133,19 +133,30 @@ const DAY = 24 * 3600_000
 export type LoanPeriod = { n: number; startsAt: number; dueAt: number; endsAt: number; last: boolean }
 
 /**
- * A loan's interest runs month to month (Philippine time) from its start: the approval date, or for a Savings Loan the
- * missed month's savings deadline (the 7th). Approved Oct 28: period 1 is due Nov 28; unpaid, it is added to the
- * balance once Nov 28 ends. A month without that day uses its last day. December 15 is every loan's last due date.
+ * A loan's interest runs month to month (Philippine time) from its approval date: approved Oct 28, period 1 is due
+ * Nov 28; unpaid, it is added to the balance once Nov 28 ends. A month without that day uses its last day. December 15
+ * is every loan's last due date. A Savings Loan follows its missed month instead, like savings: its upfront 10% is
+ * that month's interest, and each later month's is due by that month's 7th, through December.
  */
 function periodAt(r: LoanRequest, n: number): LoanPeriod {
   const s = new Date((r.decidedAt ?? r.createdAt) + PH) // Manila wall clock, read with UTC getters
   const y = s.getUTCFullYear()
-  const [m, d] = r.type === 'savings' && r.carriedMonth !== undefined ? [r.carriedMonth, 7] : [s.getUTCMonth(), s.getUTCDate()]
-  const day = (k: number) => Date.UTC(y, m + k, Math.min(d, new Date(Date.UTC(y, m + k + 1, 0)).getUTCDate())) - PH
   const deadline = Date.UTC(y, 11, 15) - PH
-  const startsAt = n === 1 ? (r.type === 'savings' && r.carriedMonth !== undefined ? day(0) : r.decidedAt ?? r.createdAt) : day(n - 1) + DAY
+  if (r.type === 'savings' && r.carriedMonth !== undefined) {
+    const seventh = (k: number) => Date.UTC(y, k, 7) - PH
+    const k = r.carriedMonth + n - 1
+    return { n, startsAt: seventh(k - 1) + DAY, dueAt: seventh(k), endsAt: seventh(k) + DAY, last: k >= 11 }
+  }
+  const m = s.getUTCMonth(), d = s.getUTCDate()
+  const day = (k: number) => Date.UTC(y, m + k, Math.min(d, new Date(Date.UTC(y, m + k + 1, 0)).getUTCDate())) - PH
+  const startsAt = n === 1 ? r.decidedAt ?? r.createdAt : day(n - 1) + DAY
   const dueAt = Math.min(day(n), deadline)
   return { n, startsAt, dueAt, endsAt: dueAt + DAY, last: dueAt === deadline }
+}
+
+/** Every loan is paid in full by December 15 of its year (dividends are released Dec 16). */
+export function loanDeadline(r: LoanRequest) {
+  return Date.UTC(new Date((r.decidedAt ?? r.createdAt) + PH).getUTCFullYear(), 11, 15) - PH
 }
 
 /** The period running at `now` (the last one, Dec 15's, once that has passed). */
@@ -160,6 +171,22 @@ export function endedPeriods(r: LoanRequest, now = Date.now()): LoanPeriod[] {
   const out: LoanPeriod[] = []
   for (let p = periodAt(r, 1); p.endsAt <= now; p = periodAt(r, p.n + 1)) { out.push(p); if (p.last) break }
   return out
+}
+
+/**
+ * The interest of every ended period still unpaid, added to the balance oldest first (the daily run, and after the
+ * admin changes a loan's date). Null when nothing is missed.
+ */
+export function missedInterest(r: LoanRequest, txns: Txn[], now = Date.now()) {
+  let cur = r
+  const entries: { period: number; due: number; dueAt: number; balance: number }[] = []
+  for (const p of endedPeriods(r, now)) {
+    const due = interestDue(cur, txns, p)
+    if (!(due > 0)) continue
+    cur = { ...cur, ...carryover(cur, due) }
+    entries.push({ period: p.n, due, dueAt: p.dueAt, balance: balanceOf(cur) })
+  }
+  return entries.length ? { balance: balanceOf(cur), carryovers: cur.carryovers ?? 0, entries } : null
 }
 
 /**

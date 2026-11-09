@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { depositAmount, type Member } from './rules'
 import type { Txn } from './ledger'
 import {
-  canAdminApprove, carryover, comakerMode, customPayment, endedPeriods, interestDue, loanPeriod, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
+  canAdminApprove, carryover, comakerMode, customPayment, endedPeriods, interestDue, loanDeadline, loanPeriod, missedInterest, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
 } from './requests'
 
 const zeros = () => Array(12).fill(0)
@@ -262,18 +262,31 @@ describe("each loan's interest is due monthly from its start (Philippine time), 
     expect(loanPeriod(r, at(2026, 1, 10)).dueAt).toBe(at(2026, 1, 28, 0))
     expect(loanPeriod(r, at(2026, 2, 10))).toMatchObject({ n: 2, dueAt: at(2026, 2, 31, 0) })
   })
-  it("a Savings Loan counts from the missed month's deadline (the 7th), not the day it was made", () => {
-    // July's missed savings, carried over on Nov 9: upfront covers July; Aug, Sep, Oct have ended; November's is due Dec 7
+  it("a Savings Loan: each month's interest is due by that month's 7th, like savings", () => {
+    // July's missed savings, carried over on Nov 9: July is the upfront 10%; Aug, Sep, Oct, Nov have passed their 7th
     const july = loan(at(2026, 10, 9), { type: 'savings', carriedMonth: 6, upfront: true })
     expect(endedPeriods(july, at(2026, 10, 10)).map((p) => [p.n, p.dueAt])).toEqual([
-      [1, at(2026, 7, 7, 0)], [2, at(2026, 8, 7, 0)], [3, at(2026, 9, 7, 0)], [4, at(2026, 10, 7, 0)],
+      [1, at(2026, 6, 7, 0)], [2, at(2026, 7, 7, 0)], [3, at(2026, 8, 7, 0)], [4, at(2026, 9, 7, 0)], [5, at(2026, 10, 7, 0)],
     ])
-    expect(loanPeriod(july, at(2026, 10, 10))).toMatchObject({ n: 5, dueAt: at(2026, 11, 7, 0) })
+    expect(loanPeriod(july, at(2026, 10, 10))).toMatchObject({ n: 6, dueAt: at(2026, 11, 7, 0), last: true }) // December's
+    // October's: upfront for October; November's 7th has passed
+    const oct = loan(at(2026, 10, 9), { type: 'savings', carriedMonth: 9, upfront: true })
+    expect(endedPeriods(oct, at(2026, 10, 10)).map((p) => p.n)).toEqual([1, 2])
   })
-  it("December's Savings Loan is due Dec 15", () => {
+  it("December's Savings Loan has only its upfront month; it is paid by Dec 15", () => {
     const dec = loan(at(2026, 10, 9), { type: 'savings', carriedMonth: 11, upfront: true })
-    expect(loanPeriod(dec, at(2026, 10, 10))).toMatchObject({ n: 1, dueAt: at(2026, 11, 15, 0), last: true })
-    expect(endedPeriods(dec, at(2026, 10, 10))).toEqual([])
+    expect(loanPeriod(dec, at(2026, 10, 10))).toMatchObject({ n: 1, dueAt: at(2026, 11, 7, 0), last: true })
+    expect(loanDeadline(dec)).toBe(at(2026, 11, 15, 0))
+  })
+  it('missed interest: every ended period still unpaid, added oldest first', () => {
+    const july = { ...loan(at(2026, 10, 9), { type: 'savings', carriedMonth: 6, upfront: true }), id: 'sl', amount: 6000, principal: 6000, balance: 6600 } as LoanRequest
+    const m = missedInterest(july, [], at(2026, 10, 10))
+    expect(m).toMatchObject({ balance: 9000, carryovers: 4 })
+    expect(m?.entries.map((e) => [e.period, e.due, e.balance])).toEqual([[2, 600, 7200], [3, 600, 7800], [4, 600, 8400], [5, 600, 9000]])
+    // August's already paid: it is skipped
+    const paidAug: Txn = { id: 'x', memberId: 'm', memberName: 'M', kind: 'interest', amount: 600, month: 7, cycle: 2026, note: '', createdAt: 1, loanId: 'sl', period: 2 }
+    expect(missedInterest(july, [paidAug], at(2026, 10, 10))?.balance).toBe(8400)
+    expect(missedInterest(july, [], at(2026, 6, 20))).toBeNull()
   })
   it('ended periods stop at Dec 15', () => {
     expect(endedPeriods(loan(at(2026, 9, 28, 10)), at(2027, 1, 1)).map((p) => p.n)).toEqual([1, 2])

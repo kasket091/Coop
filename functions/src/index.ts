@@ -7,7 +7,7 @@ import { setGlobalOptions } from 'firebase-functions/v2'
 import { onDocumentWritten } from 'firebase-functions/v2/firestore'
 import { onSchedule } from 'firebase-functions/v2/scheduler'
 import type { Txn } from '../../src/ledger'
-import { balanceOf, carryover, endedPeriods, interestDue, loanSnapshot, type LoanRequest } from '../../src/requests'
+import { balanceOf, loanSnapshot, missedInterest, type LoanRequest } from '../../src/requests'
 import { messagesFor, type Message, type Req } from './messages'
 
 initializeApp()
@@ -66,27 +66,19 @@ export const dailyInterestCarryover = onSchedule({ schedule: '5 0 * * *', timeZo
   for (const d of loans.docs) {
     const r = { ...(d.data() as LoanRequest), id: d.id }
     if (terminated.has(r.borrowerId)) continue
-    const ended = endedPeriods(r, now)
-    if (!ended.length) continue
     const txns = (await db.collection('transactions').where('loanId', '==', d.id).get()).docs.map((t) => ({ ...(t.data() as Txn), id: t.id }))
-    let cur = r
-    const entries: { period: number; note: string }[] = []
-    for (const p of ended) {
-      const due = interestDue(cur, txns, p)
-      if (!(due > 0)) continue
-      cur = { ...cur, ...carryover(cur, due) }
-      entries.push({ period: p.n, note: `Carryover (automatic): ${php(due)} interest due ${day(p.dueAt)} was not paid; balance now ${php(balanceOf(cur))}` })
-    }
-    if (!entries.length) continue
+    const missed = missedInterest(r, txns, now)
+    if (!missed) continue
     await db.runTransaction(async (tx) => {
       const live = { ...((await tx.get(d.ref)).data() as LoanRequest), id: d.id }
       if (live.status !== 'approved' || balanceOf(live) !== balanceOf(r)) return // changed meanwhile: tomorrow's run decides
-      tx.update(d.ref, { balance: balanceOf(cur), carryovers: cur.carryovers ?? 0 })
-      for (const e of entries) {
+      tx.update(d.ref, { balance: missed.balance, carryovers: missed.carryovers })
+      for (const e of missed.entries) {
         tx.set(db.collection('transactions').doc(), {
           memberId: r.borrowerId, memberName: r.borrowerName, kind: 'note', amount: 0, carryover: true, loanId: d.id,
           // every entry keeps the loan as it was before this run, so voiding the group puts it back
-          loanBefore: loanSnapshot(r), period: e.period, month: phMonth(now), cycle: phYear(now), createdAt: now, note: e.note,
+          loanBefore: loanSnapshot(r), period: e.period, month: phMonth(now), cycle: phYear(now), createdAt: now,
+          note: `Carryover (automatic): ${php(e.due)} interest due ${day(e.dueAt)} was not paid; balance now ${php(e.balance)}`,
         })
       }
     })

@@ -12,7 +12,7 @@ import {
 import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { auth, db, firebaseConfig } from './firebase'
 import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
-import { balanceOf, carryover, customPayment, interestDue, loanPeriod, loanSnapshot, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
+import { balanceOf, customPayment, interestDue, loanPeriod, loanSnapshot, missedInterest, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { feeTopUps, payFromSavings } from './termination'
@@ -384,16 +384,26 @@ export const loanCustomPayment = async (id: string, year: number, amount: number
   })
 }
 
-/** Interest not paid: it is added to the balance and next month is charged on the new balance. */
-export const carryOverLoan = async (id: string, year: number) => {
+/**
+ * The admin corrects a loan's approval date (e.g. a loan entered late): its due dates follow, and the interest of any
+ * period now overdue is added at once, the same as the daily run. Voiding it puts the old date and balance back.
+ */
+export const setLoanDate = async (id: string, year: number, decidedAt: number) => {
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
-    const period = loanPeriod(r)
-    const due = interestDue(r, lt, period)
-    if (!(due > 0)) throw new Error("Nothing to carry over: this period's interest is already paid or carried over.")
+    if (r.type === 'savings') throw new Error("A Savings Loan's due dates follow its missed month, so its date can't be changed.")
+    if (decidedAt > Date.now()) throw new Error("The date can't be in the future.")
+    if (new Date(decidedAt + 8 * 3600_000).getUTCFullYear() !== year) throw new Error(`Choose a date in ${year}.`)
+    const missed = missedInterest({ ...r, decidedAt }, lt)
     return {
-      update: carryover(r, due),
-      entries: [{ kind: 'note', amount: 0, carryover: true, period: period.n, note: `Carryover: ${php(due)} interest added; balance now ${php(balanceOf(r) + due)}` }],
+      update: { decidedAt, ...(missed ? { balance: missed.balance, carryovers: missed.carryovers } : {}) },
+      entries: [
+        { kind: 'note', amount: 0, note: `Approval date changed: ${dueDay(r.decidedAt ?? r.createdAt)} → ${dueDay(decidedAt)}` },
+        ...(missed?.entries ?? []).map((e) => ({
+          kind: 'note' as const, amount: 0, carryover: true, period: e.period,
+          note: `Carryover: ${php(e.due)} interest due ${dueDay(e.dueAt)} was not paid; balance now ${php(e.balance)}`,
+        })),
+      ],
     }
   })
 }
