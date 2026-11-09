@@ -20,8 +20,10 @@ export function LoansTab({ me, year, mine, txns, onPay }: { me: StoredMember; ye
   const now = Date.now()
   const unpaid = unpaidLoans(mine, me.uid, me.sheetLoanBalance ?? 0, { txns, now })
   const [showAll, setShowAll] = useState(false) // newest 5 first; the rest on request
+  const [showAllClosed, setShowAllClosed] = useState(false)
   const pending = mine.filter((r) => r.status === 'pending')
   const closed = mine.filter((r) => r.status === 'paid' || r.status === 'declined' || r.status === 'withdrawn')
+    .sort((a, b) => (b.paidAt ?? b.decidedAt ?? b.createdAt) - (a.paidAt ?? a.decidedAt ?? a.createdAt)) // newest first
   return (
     <section>
       <h1 style={{ fontSize: 22 }}>My loans</h1>
@@ -58,7 +60,8 @@ export function LoansTab({ me, year, mine, txns, onPay }: { me: StoredMember; ye
       <div className="section">
         <h2>Closed loans</h2>
         {!closed.length ? <p className="note">No closed loans yet.</p>
-          : <ul className="requests">{closed.map((r) => <RequestCard key={r.id} r={r}>{r.paidAt && <p className="note">Paid off {fmtDate(r.paidAt)}</p>}</RequestCard>)}</ul>}
+          : <ul className="requests">{(showAllClosed ? closed : closed.slice(0, 5)).map((r) => <RequestCard key={r.id} r={r}>{r.paidAt && <p className="note">Paid off {fmtDate(r.paidAt)}</p>}</RequestCard>)}</ul>}
+        {closed.length > 5 && <button className="copy wide" onClick={() => setShowAllClosed(!showAllClosed)}>{showAllClosed ? 'Show fewer' : `Show all (${closed.length})`}</button>}
       </div>
 
       <div className="section">

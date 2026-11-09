@@ -23,3 +23,13 @@ it('payment transactions: the newest 5, with Show all for the rest', () => {
   expect(page(7)).not.toContain('entry 5')
   expect(page(5)).not.toContain('Show all')
 })
+
+it('closed loans: the newest 5, with Show all for the rest', () => {
+  const closed = Array.from({ length: 6 }, (_, i) => ({ ...loan, id: `c${i}`, ref: `${i + 1}FL`, status: 'paid' as const, paidAt: 1000 + i }))
+  const page = renderToStaticMarkup(<LoansTab me={me} year={2026} mine={closed} txns={[]} onPay={() => {}} />)
+  expect(page).toContain('Show all (6)')
+  expect(page).toContain('6FL') // newest shown
+  expect(page).not.toContain('>1FL<') // oldest hidden until Show all
+  // (with 5 or fewer it is shown, so the check above is meaningful)
+  expect(renderToStaticMarkup(<LoansTab me={me} year={2026} mine={closed.slice(0, 5)} txns={[]} onPay={() => {}} />)).toContain('>1FL<')
+})
