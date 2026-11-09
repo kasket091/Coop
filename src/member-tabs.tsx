@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ADMIN_MEMBER_NAME } from './accounts'
 import { PushSetting } from './push'
-import { dueDay, peso } from './format'
+import { interestLine, peso } from './format'
 import type { Txn } from './ledger'
 import {
-  balanceOf, comakerMode, interestDue, loanMonth, loanPeriod, monthInterest, refLabel, requestStage, unpaidLoans, validateRequest, type LoanRequest, type LoanType,
+  balanceOf, comakerMode, interestNext, loanMonth, monthInterest, refLabel, requestStage, unpaidLoans, validateRequest, type LoanRequest, type LoanType,
 } from './requests'
 import { depositAmount, loanLimit, monthsLeft } from './rules'
 import {
@@ -34,17 +34,13 @@ export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: num
         {!unpaid.loans.length ? <p className="note">No active loans.</p> : (
           <ul className="requests">
             {unpaid.loans.map((r) => {
-              const period = loanPeriod(r, now)
-              const due = interestDue(r, txns, period)
+              const next = interestNext(r, txns, now)
               const paid = txns.filter((t) => t.loanId === r.id && !t.voidedAt && (t.kind === 'interest' || t.kind === 'principal' || t.settles))
               return (
                 <RequestCard key={r.id} r={r}>
                   <ul className="rows" style={{ marginTop: 8 }}>
                     <li><span>Still owed</span><b>{peso(balanceOf(r))}</b></li>
-                    {monthInterest(r) > 0 && (due > 0
-                      ? <li><span>Interest due {dueDay(period.dueAt)}</span><b>{peso(due)}</b></li>
-                      : period.last ? <li><span>Pay in full by</span><b>{dueDay(period.dueAt)}</b></li>
-                      : <li><span>Next interest due</span><b>{dueDay(loanPeriod(r, period.endsAt).dueAt)}</b></li>)}
+                    {monthInterest(r) > 0 && <li><span>Interest</span><b>{interestLine(next)}</b></li>}
                     <li><span>Paid so far</span><b>{peso(sum(paid.map((t) => t.amount)))}</b></li>
                   </ul>
                 </RequestCard>

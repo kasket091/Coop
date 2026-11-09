@@ -123,7 +123,7 @@ export function requestStage(r: LoanRequest): string {
 export function unpaidLoans(all: LoanRequest[], memberId: string, sheetBalance = 0, current?: { txns: Txn[]; now: number }) {
   const loans = all.filter((r) => r.borrowerId === memberId && r.status === 'approved')
   const appTotal = loans.reduce((t, r) => t + balanceOf(r), 0)
-  const due = current ? cents(loans.reduce((t, r) => t + interestDue(r, current.txns, loanPeriod(r, current.now)), 0)) : 0
+  const due = current ? cents(loans.reduce((t, r) => t + interestDueNow(r, current.txns, current.now), 0)) : 0
   return { loans, appTotal, interestDue: due, sheetBalance, total: cents(appTotal + due + sheetBalance) }
 }
 
@@ -154,6 +154,12 @@ function periodAt(r: LoanRequest, n: number): LoanPeriod {
   return { n, startsAt, dueAt, endsAt: dueAt + DAY, last: dueAt === deadline }
 }
 
+/** A Savings Loan's month, like savings: the 1st–7th still belongs to the month before (Nov 1 → October). */
+export function savingsMonthOf(ms: number) {
+  const d = new Date(ms + PH)
+  return d.getUTCDate() <= 7 && d.getUTCMonth() > 0 ? d.getUTCMonth() - 1 : d.getUTCMonth()
+}
+
 /** Every loan is paid in full by December 15 of its year (dividends are released Dec 16). */
 export function loanDeadline(r: LoanRequest) {
   return Date.UTC(new Date((r.decidedAt ?? r.createdAt) + PH).getUTCFullYear(), 11, 15) - PH
@@ -171,6 +177,25 @@ export function endedPeriods(r: LoanRequest, now = Date.now()): LoanPeriod[] {
   const out: LoanPeriod[] = []
   for (let p = periodAt(r, 1); p.endsAt <= now; p = periodAt(r, p.n + 1)) { out.push(p); if (p.last) break }
   return out
+}
+
+/**
+ * Interest to pay now, apart from what is owed: this period's for most loans. A Savings Loan has none: its 10% goes
+ * straight into what is owed on each 8th, so its payments always come off that.
+ */
+export function interestDueNow(r: LoanRequest, txns: Txn[], now = Date.now()) {
+  return r.type === 'savings' ? 0 : interestDue(r, txns, loanPeriod(r, now))
+}
+
+/** What a loan card says about interest: due now, the next 10% a Savings Loan will add, the next due date, or pay by Dec 15. */
+export type InterestNext = { kind: 'due' | 'added'; amount: number; on: number } | { kind: 'next' | 'pay-by'; on: number }
+export function interestNext(r: LoanRequest, txns: Txn[], now = Date.now()): InterestNext {
+  const p = loanPeriod(r, now)
+  const payBy = { kind: 'pay-by' as const, on: loanDeadline(r) }
+  if (r.type === 'savings') return p.endsAt > now && !(p.n === 1 && p.last) ? { kind: 'added', amount: monthInterest(r), on: p.endsAt } : payBy
+  const due = interestDue(r, txns, p)
+  if (due > 0) return { kind: 'due', amount: due, on: p.dueAt }
+  return p.last ? payBy : { kind: 'next', on: loanPeriod(r, p.endsAt).dueAt }
 }
 
 /**
@@ -200,6 +225,9 @@ export function interestDue(r: LoanRequest, txns: Txn[], p: LoanPeriod) {
   const mine = txns.filter((t) => t.loanId === r.id && !t.voidedAt && inPeriod(t))
   // a loan carryover; not the carry-over mark that created a Savings Loan (its loan was not approved yet)
   if (mine.some((t) => t.carryover && t.loanBefore?.status === 'approved')) return 0
+  // a Savings Loan's 10% is added on each 8th until the missed savings are paid in full; paying interest only
+  // brings the balance down, it doesn't stop the next month's 10%
+  if (r.type === 'savings') return monthInterest(r)
   const paid = mine.filter((t) => t.kind === 'interest').reduce((sum, t) => sum + t.amount, 0)
   return cents(Math.max(0, monthInterest(r) - paid))
 }

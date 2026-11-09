@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { depositAmount, type Member } from './rules'
 import type { Txn } from './ledger'
 import {
-  canAdminApprove, carryover, comakerMode, customPayment, endedPeriods, interestDue, loanDeadline, loanPeriod, missedInterest, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
+  canAdminApprove, carryover, comakerMode, customPayment, endedPeriods, interestDue, loanDeadline, loanPeriod, missedInterest, savingsMonthOf, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
 } from './requests'
 
 const zeros = () => Array(12).fill(0)
@@ -160,7 +160,8 @@ describe('approval flow', () => {
 })
 
 describe("a period's interest due (in the unpaid total until paid)", () => {
-  const sl = { ...req('approved', 'approved', 'approved'), id: 'sl', borrowerId: 'me', type: 'savings', amount: 6000, principal: 6000, balance: 6600, upfront: true } as LoanRequest
+  // a Flex loan of ₱7,500 at 8%: ₱600 a month
+  const sl = { ...req('approved', 'approved', 'approved'), id: 'sl', borrowerId: 'me', type: 'flex', amount: 7500, principal: 7500, balance: 7500 } as LoanRequest
   const p2 = { n: 2, startsAt: 1000, dueAt: 2000, endsAt: 3000, last: false }
   const t = (over: Partial<Txn>): Txn => ({ id: Math.random().toString(36), memberId: 'me', memberName: 'M', kind: 'interest', amount: 600, month: 10, cycle: 2026, note: '', createdAt: 1500, loanId: 'sl', ...over })
   const due = (txns: Txn[]) => interestDue(sl, txns, p2)
@@ -188,10 +189,10 @@ describe("a period's interest due (in the unpaid total until paid)", () => {
   it('the unpaid total adds what is due now', () => {
     const oct28 = { ...sl, decidedAt: new Date(2026, 9, 28, 10).getTime() } as LoanRequest
     const dec10 = new Date(2026, 11, 10).getTime()
-    // approved Oct 28: on Dec 10 the second period is running (its first was the upfront 10%)
+    // approved Oct 28: on Dec 10 the second period is running
     const u = unpaidLoans([oct28], 'me', 1000, { txns: [], now: dec10 })
-    expect(u).toMatchObject({ appTotal: 6600, interestDue: 600, total: 8200 })
-    expect(unpaidLoans([oct28], 'me', 1000, { txns: [t({ createdAt: dec10 - 1000 })], now: dec10 }).total).toBe(7600)
+    expect(u).toMatchObject({ appTotal: 7500, interestDue: 600, total: 9100 })
+    expect(unpaidLoans([oct28], 'me', 1000, { txns: [t({ createdAt: dec10 - 1000 })], now: dec10 }).total).toBe(8500)
   })
 })
 
@@ -283,12 +284,39 @@ describe("each loan's interest is due monthly from its start (Philippine time), 
     const m = missedInterest(july, [], at(2026, 10, 10))
     expect(m).toMatchObject({ balance: 9000, carryovers: 4 })
     expect(m?.entries.map((e) => [e.period, e.due, e.balance])).toEqual([[2, 600, 7200], [3, 600, 7800], [4, 600, 8400], [5, 600, 9000]])
-    // August's already paid: it is skipped
+    // a ₱600 interest payment doesn't stop the next month's 10% (only paying in full does)
     const paidAug: Txn = { id: 'x', memberId: 'm', memberName: 'M', kind: 'interest', amount: 600, month: 7, cycle: 2026, note: '', createdAt: 1, loanId: 'sl', period: 2 }
-    expect(missedInterest(july, [paidAug], at(2026, 10, 10))?.balance).toBe(8400)
+    expect(missedInterest(july, [paidAug], at(2026, 10, 10))?.balance).toBe(9000)
     expect(missedInterest(july, [], at(2026, 6, 20))).toBeNull()
   })
   it('ended periods stop at Dec 15', () => {
     expect(endedPeriods(loan(at(2026, 9, 28, 10)), at(2027, 1, 1)).map((p) => p.n)).toEqual([1, 2])
+  })
+})
+
+describe("Savings Loan: each 8th adds the month's 10% until paid in full", () => {
+  const at = (y: number, m: number, d: number, h = 12) => Date.UTC(y, m, d, h - 8)
+  const oct = { ...req('approved', 'approved', 'approved'), id: 'sl', type: 'savings', carriedMonth: 9, upfront: true, amount: 6000, principal: 6000, balance: 6600, decidedAt: at(2026, 9, 8) } as LoanRequest
+  const t = (over: Partial<Txn>): Txn => ({ id: 'x', memberId: 'm', memberName: 'M', kind: 'interest', amount: 600, month: 9, cycle: 2026, note: '', createdAt: at(2026, 9, 20), loanId: 'sl', ...over })
+
+  it("October's: Nov 8 adds November's ₱600 (₱7,200)", () => {
+    expect(missedInterest(oct, [], at(2026, 10, 10))).toMatchObject({ balance: 7200, carryovers: 1 })
+  })
+  it('paying ₱600 interest in October takes it off, but November is still added (only paying in full stops it)', () => {
+    const afterPay = { ...oct, balance: 6000 }
+    expect(missedInterest(afterPay, [t({})], at(2026, 10, 10))).toMatchObject({ balance: 6600 })
+  })
+  it('paid in full (nothing left of the missed savings): nothing more is added', () => {
+    expect(missedInterest({ ...oct, principal: 0, balance: 0 }, [], at(2026, 10, 10))).toBeNull()
+  })
+  it('nothing is "due" separately, so the unpaid total is just what is owed', () => {
+    expect(unpaidLoans([{ ...oct, borrowerId: 'me' }], 'me', 0, { txns: [], now: at(2026, 9, 20) }).total).toBe(6600)
+    expect(unpaidLoans([{ ...oct, borrowerId: 'me', balance: 7200 }], 'me', 0, { txns: [], now: at(2026, 10, 10) }).total).toBe(7200)
+  })
+  it("interest paid up to the 7th belongs to the month before (the savings month)", () => {
+    expect(savingsMonthOf(at(2026, 10, 1))).toBe(9) // Nov 1 → October
+    expect(savingsMonthOf(at(2026, 10, 7, 23))).toBe(9) // Nov 7 → October
+    expect(savingsMonthOf(at(2026, 10, 8, 0) + 60_000)).toBe(10) // Nov 8 → November
+    expect(savingsMonthOf(at(2026, 0, 5))).toBe(0) // Jan 1–7 stays January (no December of last cycle)
   })
 })

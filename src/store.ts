@@ -12,7 +12,7 @@ import {
 import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { auth, db, firebaseConfig } from './firebase'
 import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
-import { balanceOf, customPayment, interestDue, loanPeriod, loanSnapshot, missedInterest, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
+import { balanceOf, customPayment, interestDueNow, loanPeriod, loanSnapshot, missedInterest, savingsMonthOf, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { feeTopUps, payFromSavings } from './termination'
@@ -330,13 +330,16 @@ export const markLoanPaid = (id: string, year: number) =>
     return {
       update: { status: 'paid', paidAt: Date.now() },
       entries: [
-        ...(interest > 0 ? [{ kind: 'interest' as const, amount: interest, note: 'Interest collected when the loan was paid off' }] : []),
+        ...(interest > 0 ? [{ kind: 'interest' as const, amount: interest, ...interestMonth(r), note: 'Interest collected when the loan was paid off' }] : []),
         { kind: 'principal', amount: principal, note: 'Loan paid in full' },
       ],
     }
   })
 
 /** The borrower paid this month's interest only; the balance stays. */
+/** A Savings Loan's interest is recorded under its savings month (paid Nov 1–7 → October); other loans', the month paid. */
+const interestMonth = (r: LoanRequest) => (r.type === 'savings' ? { month: savingsMonthOf(Date.now()) } : {})
+
 /** The loan's transactions, so a payment knows how much of this month's interest is still due. */
 const loanTxns = async (id: string) => asTxns((await getDocs(query(txns, where('loanId', '==', id)))).docs)
 
@@ -345,12 +348,12 @@ export const payLoanInterest = async (id: string, year: number) => {
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
     const period = loanPeriod(r)
-    const p = payInterest(r, interestDue(r, lt, period))
+    const p = payInterest(r, interestDueNow(r, lt))
     if (!(p.collected > 0)) throw new Error("This period's interest is already paid.")
     const off = p.update.balance < balanceOf(r)
     const update: Record<string, string | number> = { ...p.update }
     if (p.update.balance <= 0) Object.assign(update, { status: 'paid', paidAt: Date.now() })
-    return { update, entries: [{ kind: 'interest', amount: p.collected, period: period.n, note: off ? `Interest paid off the balance: now ${php(p.update.balance)} owed` : `Interest due ${dueDay(period.dueAt)} on ${php(balanceOf(r))}` }] }
+    return { update, entries: [{ kind: 'interest', amount: p.collected, period: period.n, ...interestMonth(r), note: off ? `Interest paid off the balance: now ${php(p.update.balance)} owed` : `Interest due ${dueDay(period.dueAt)} on ${php(balanceOf(r))}` }] }
   })
 }
 
@@ -371,13 +374,13 @@ export const loanCustomPayment = async (id: string, year: number, amount: number
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
     const period = loanPeriod(r)
-    const p = customPayment(r, amount, interestDue(r, lt, period))
+    const p = customPayment(r, amount, interestDueNow(r, lt))
     if ('error' in p) throw new Error(p.error)
     const toPrincipal = Math.round((amount - p.collected) * 100) / 100
     return {
       update: { balance: p.balance, principal: p.principal, customPayments: (r.customPayments ?? 0) + 1, ...(p.paidOff ? { status: 'paid', paidAt: Date.now() } : {}) },
       entries: [
-        ...(p.collected > 0 ? [{ kind: 'interest' as const, amount: p.collected, period: period.n, note: `Custom payment of ${php(amount)}: interest part` }] : []),
+        ...(p.collected > 0 ? [{ kind: 'interest' as const, amount: p.collected, period: period.n, ...interestMonth(r), note: `Custom payment of ${php(amount)}: interest part` }] : []),
         ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, period: period.n, note: `Custom payment of ${php(amount)}: off the balance` }] : []),
       ],
     }
@@ -609,7 +612,7 @@ const payLoanFromSavings = (id: string, year: number, amount: number, full: bool
         ],
       }
     }
-    const p = customPayment(r, amount)
+    const p = customPayment(r, amount, r.type === 'savings' ? 0 : undefined) // a Savings Loan has nothing due apart from what's owed
     if ('error' in p) throw new Error(p.error)
     const toPrincipal = Math.round((amount - p.collected) * 100) / 100
     return {

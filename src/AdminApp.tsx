@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { RECRUITS, startingPassword } from './accounts'
 import { backupSummary, parseBackup, type Backup } from './backup'
 import { Dashboard } from './Dashboard'
-import { dueDay, MONTHS, peso } from './format'
+import { dueDay, interestLine, MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
-import { balanceOf, canAdminApprove, customPayment, interestDue, loanMonth, loanPeriod, missedInterest, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
+import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext, loanMonth, loanPeriod, missedInterest, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { carryoverMonths } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
@@ -382,16 +382,14 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
       </div>
       {u.interestDue > 0 && <p className="note">Includes {peso(u.interestDue)} interest not yet paid (see each loan for its due date).</p>}
       <ul className="unpaid-list">
-        {u.loans.map((r) => { const period = loanPeriod(r, now); const due = interestDue(r, txns, period); const pi = payInterest(r, due); // once the interest is paid, Mark as paid does the same (closes it, the savings count as saved)
+        {u.loans.map((r) => { const period = loanPeriod(r, now); const due = interestDueNow(r, txns, now); const pi = payInterest(r, due); // once the interest is paid, Mark as paid does the same (closes it, the savings count as saved)
           const sp = savingsPayback(r); const showSp = !!sp && sp.update.balance > 0; return (
           <li key={r.id}>
             <span>
               {r.ref && <b className="ref">{refLabel(r)}</b>}<b className="loan-month">{loanMonth(r)}</b>{peso(balanceOf(r))} owed{balanceOf(r) !== r.amount ? ` (borrowed ${peso(r.amount)})` : ''}
               <small>
                 approved {new Date(r.decidedAt ?? r.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
-                {monthInterest(r) > 0
-                  ? due > 0 ? ` · ${peso(due)} interest due ${dueDay(period.dueAt)}` : period.last ? ` · pay in full by ${dueDay(period.dueAt)}` : ` · next interest due ${dueDay(loanPeriod(r, period.endsAt).dueAt)}`
-                  : ` · ${r.quote}`}
+                {monthInterest(r) > 0 ? ` · ${interestLine(interestNext(r, txns, now))}` : ` · ${r.quote}`}
                 {r.carryovers ? ` · carried over ${r.carryovers}×` : ''}{r.interestPayments ? ` · interest paid ${r.interestPayments}×` : ''}
               </small>
             </span>

@@ -78,7 +78,9 @@ export const dailyInterestCarryover = onSchedule({ schedule: '5 0 * * *', timeZo
           memberId: r.borrowerId, memberName: r.borrowerName, kind: 'note', amount: 0, carryover: true, loanId: d.id,
           // every entry keeps the loan as it was before this run, so voiding the group puts it back
           loanBefore: loanSnapshot(r), period: e.period, month: phMonth(now), cycle: phYear(now), createdAt: now,
-          note: `Carryover (automatic): ${php(e.due)} interest due ${day(e.dueAt)} was not paid; balance now ${php(e.balance)}`,
+          note: r.type === 'savings'
+            ? `${monthName(e.dueAt)}'s 10% added (${php(e.due)}): the missed savings weren't paid in full by ${day(e.dueAt)}; balance now ${php(e.balance)}`
+            : `Carryover (automatic): ${php(e.due)} interest due ${day(e.dueAt)} was not paid; balance now ${php(e.balance)}`,
         })
       }
     })
@@ -86,5 +88,7 @@ export const dailyInterestCarryover = onSchedule({ schedule: '5 0 * * *', timeZo
 })
 
 const phDate = (ms: number) => new Date(ms + 8 * 3600_000)
+// the month whose 10% this is: added on the 8th, the day after the 7th it was due by
+const monthName = (dueAt: number) => new Date(dueAt + 24 * 3600_000).toLocaleDateString('en-PH', { month: 'long', timeZone: 'Asia/Manila' })
 const phMonth = (ms: number) => phDate(ms).getUTCMonth()
 const phYear = (ms: number) => phDate(ms).getUTCFullYear()
