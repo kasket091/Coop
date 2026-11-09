@@ -27,7 +27,6 @@ export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: num
       <div className={`unpaid ${unpaid.total > 0 ? 'owing' : ''}`} style={{ marginTop: 12 }}>
         <div className="unpaid-head"><span>Current loans remaining</span><b>{peso(unpaid.total)}</b></div>
         {unpaid.interestDue > 0 && <p className="note" style={{ marginTop: 4 }}>Includes {peso(unpaid.interestDue)} interest due this month.</p>}
-        {unpaid.sheetBalance > 0 && <p className="note" style={{ marginTop: 4 }}>Includes {peso(unpaid.sheetBalance)} from the old Borrowers sheet.</p>}
       </div>
 
       <div className="section">

@@ -655,15 +655,6 @@ export async function restoreMember(m: StoredMember, year: number) {
   await recomputeSummary(await allMembers()) // a restored top borrower gets the 3% back
 }
 
-/** The member's unpaid balance from the old Borrowers sheet: typed by the admin, every change logged. */
-export async function saveSheetLoanBalance(m: StoredMember, amount: number, year: number) {
-  const batch = writeBatch(db)
-  batch.update(doc(db, 'members', m.uid), { sheetLoanBalance: amount })
-  batch.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'note', amount: 0,
-    note: `Old sheet loan balance changed ${php(m.sheetLoanBalance ?? 0)} → ${php(amount)}` }, year, Date.now()))
-  await batch.commit()
-}
-
 /** Sets (or clears) who recruited a member: that board member is their one co-maker. Logged in their history. */
 export async function setRecruiter(m: StoredMember, recruiter: StoredMember | null, year: number) {
   const batch = writeBatch(db)

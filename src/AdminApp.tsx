@@ -16,7 +16,7 @@ import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
 import {
   addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, bookFeeTopUps, payForSavings, needsSavingsSettle, settlePaidSavingsLoans, carryOverLoan, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
-  payLoanInterest, recomputeSummary, renameMember, resetLogin, saveSheetLoanBalance,
+  payLoanInterest, recomputeSummary, renameMember, resetLogin,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
   type StoredMember, type Summary, type Txn, rebuildAllLedgers, setRecruiter,
 } from './store'
@@ -364,19 +364,17 @@ function AddTxn({ m, year, onDone }: { m: StoredMember; year: number; onDone: (m
   )
 }
 
-/** Total unpaid loans: app loans approved but not yet paid, plus the balance typed from the old Borrowers sheet. */
+/** Total unpaid loans: app loans approved but not yet paid, plus this month's interest still due. */
 function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: LoanRequest[]; txns: Txn[]; year: number }) {
   const month = ledgerMonth(year)
   const u = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0, { txns, month, cycle: year })
-  const [balance, setBalance] = useState(String(m.sheetLoanBalance ?? 0))
-  const [editing, setEditing] = useState(false)
   const [paying, setPaying] = useState<string | null>(null)
   const [payAmount, setPayAmount] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key); setError(null)
-    try { await fn(); setEditing(false); setPaying(null); setPayAmount('') } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
+    try { await fn(); setPaying(null); setPayAmount('') } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
   }
   return (
     <div className={`unpaid ${u.total > 0 ? 'owing' : ''}`}>
@@ -428,21 +426,6 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
               onRecord={(n) => run(r.id, () => loanCustomPayment(r.id, year, n))} />}
           </li>
         ) })}
-        <li>
-          {editing ? (
-            <span className="balance-edit">
-              <label htmlFor="sb">From the old sheet (₱)</label>
-              <input id="sb" inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} />
-              <button className="btn" disabled={busy === 'sheet'} onClick={() => run('sheet', () => saveSheetLoanBalance(m, Number(balance.replace(/[^\d.]/g, '')) || 0, year))}>Save</button>
-              <button className="copy" onClick={() => { setEditing(false); setBalance(String(m.sheetLoanBalance ?? 0)) }}>Cancel</button>
-            </span>
-          ) : (
-            <>
-              <span>{peso(u.sheetBalance)} from the old Borrowers sheet</span>
-              <button className="btn-mini" onClick={() => setEditing(true)}>Edit</button>
-            </>
-          )}
-        </li>
       </ul>
       {error && <p className="alert" role="alert">{error}</p>}
     </div>
@@ -541,11 +524,10 @@ function LoansAdmin({ requests, members, year }: { requests: LoanRequest[]; memb
   const closed = requests.filter((r) => r.status === 'paid')
   const list = (view === 'active' ? active : closed).filter((r) => r.borrowerName.toLowerCase().includes(q.trim().toLowerCase()))
   const total = active.reduce((t, r) => t + balanceOf(r), 0)
-  const sheet = members.reduce((t, m) => t + (m.sheetLoanBalance ?? 0), 0)
   return (
     <section>
       <h1 style={{ fontSize: 22 }}>Loans</h1>
-      <p className="plan">{peso(total)} owed on {active.length} app loan{active.length === 1 ? '' : 's'}{sheet ? ` + ${peso(sheet)} from the old sheet` : ''}</p>
+      <p className="plan">{peso(total)} owed on {active.length} app loan{active.length === 1 ? '' : 's'}</p>
       <div className="segmented" role="tablist" aria-label="Loan category">
         <button role="tab" aria-selected={view === 'active'} onClick={() => setView('active')}>Active Loans ({active.length})</button>
         <button role="tab" aria-selected={view === 'closed'} onClick={() => setView('closed')}>Closed Loans ({closed.length})</button>

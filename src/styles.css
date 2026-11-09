@@ -223,9 +223,6 @@ main.no-tabs { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
 .unpaid-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
 .unpaid-list li > span { display: grid; }
 .unpaid-list small { font-size: 13px; color: var(--muted); }
-.balance-edit { display: grid; gap: 8px; width: 100%; }
-.balance-edit input { min-height: 44px; padding: 0 12px; border: 1.5px solid var(--line); border-radius: var(--radius); background: #fff; }
-.balance-edit .btn, .balance-edit .copy { width: 100%; }
 
 .loan-actions { display: grid; gap: 6px; justify-items: end; flex-shrink: 0; }
 .loan-actions .btn-mini { margin-left: 0; width: 100%; }
