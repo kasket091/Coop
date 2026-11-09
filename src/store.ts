@@ -12,10 +12,11 @@ import {
 import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { auth, db, firebaseConfig } from './firebase'
 import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
-import { balanceOf, carryover, customPayment, interestDue, loanSnapshot, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
+import { balanceOf, carryover, customPayment, interestDue, loanPeriod, loanSnapshot, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { feeTopUps, payFromSavings } from './termination'
+import { dueDay } from './format'
 import { BACKUP_COLLECTIONS, makeBackup, type Backup } from './backup'
 
 // Offline, Firestore would queue writes and send them later (a payment or void landing hours after it was typed):
@@ -342,12 +343,13 @@ const loanTxns = async (id: string) => asTxns((await getDocs(query(txns, where('
 export const payLoanInterest = async (id: string, year: number) => {
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
-    const p = payInterest(r, interestDue(r, lt, ledgerMonth(year), year))
-    if (!(p.collected > 0)) throw new Error("This month's interest is already paid.")
+    const period = loanPeriod(r)
+    const p = payInterest(r, interestDue(r, lt, period.month, period.cycle))
+    if (!(p.collected > 0)) throw new Error("This period's interest is already paid.")
     const off = p.update.balance < balanceOf(r)
     const update: Record<string, string | number> = { ...p.update }
     if (p.update.balance <= 0) Object.assign(update, { status: 'paid', paidAt: Date.now() })
-    return { update, entries: [{ kind: 'interest', amount: p.collected, note: off ? `Interest paid off the balance: now ${php(p.update.balance)} owed` : `This month's interest on ${php(balanceOf(r))}` }] }
+    return { update, entries: [{ kind: 'interest', amount: p.collected, month: period.month, note: off ? `Interest paid off the balance: now ${php(p.update.balance)} owed` : `Interest due ${dueDay(period.dueAt)} on ${php(balanceOf(r))}` }] }
   })
 }
 
@@ -367,14 +369,15 @@ export const payForSavings = (id: string, year: number) =>
 export const loanCustomPayment = async (id: string, year: number, amount: number) => {
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
-    const p = customPayment(r, amount, interestDue(r, lt, ledgerMonth(year), year))
+    const period = loanPeriod(r)
+    const p = customPayment(r, amount, interestDue(r, lt, period.month, period.cycle))
     if ('error' in p) throw new Error(p.error)
     const toPrincipal = Math.round((amount - p.collected) * 100) / 100
     return {
       update: { balance: p.balance, principal: p.principal, customPayments: (r.customPayments ?? 0) + 1, ...(p.paidOff ? { status: 'paid', paidAt: Date.now() } : {}) },
       entries: [
-        ...(p.collected > 0 ? [{ kind: 'interest' as const, amount: p.collected, note: `Custom payment of ${php(amount)}: interest part` }] : []),
-        ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, note: `Custom payment of ${php(amount)}: off the balance` }] : []),
+        ...(p.collected > 0 ? [{ kind: 'interest' as const, amount: p.collected, month: period.month, note: `Custom payment of ${php(amount)}: interest part` }] : []),
+        ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, month: period.month, note: `Custom payment of ${php(amount)}: off the balance` }] : []),
       ],
     }
   })
@@ -384,11 +387,12 @@ export const loanCustomPayment = async (id: string, year: number, amount: number
 export const carryOverLoan = async (id: string, year: number) => {
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
-    const due = interestDue(r, lt, ledgerMonth(year), year)
-    if (!(due > 0)) throw new Error("Nothing to carry over: this month's interest is already paid or carried over.")
+    const period = loanPeriod(r)
+    const due = interestDue(r, lt, period.month, period.cycle)
+    if (!(due > 0)) throw new Error("Nothing to carry over: this period's interest is already paid or carried over.")
     return {
       update: carryover(r, due),
-      entries: [{ kind: 'note', amount: 0, carryover: true, note: `Carryover: ${php(due)} interest added; balance now ${php(balanceOf(r) + due)}` }],
+      entries: [{ kind: 'note', amount: 0, carryover: true, month: period.month, note: `Carryover: ${php(due)} interest added; balance now ${php(balanceOf(r) + due)}` }],
     }
   })
 }

@@ -119,16 +119,47 @@ export function requestStage(r: LoanRequest): string {
 }
 
 /** A member's unpaid loans: app loans approved but not marked paid, plus the balance typed from the old sheet. */
-/** With `thisMonth`, the total also counts each loan's interest due this month until it is paid or carried over. */
-export function unpaidLoans(all: LoanRequest[], memberId: string, sheetBalance = 0, thisMonth?: { txns: Txn[]; month: number; cycle: number }) {
+/** With `current`, the total also counts each loan's interest due this period until it is paid or carried over. */
+export function unpaidLoans(all: LoanRequest[], memberId: string, sheetBalance = 0, current?: { txns: Txn[]; now: number }) {
   const loans = all.filter((r) => r.borrowerId === memberId && r.status === 'approved')
   const appTotal = loans.reduce((t, r) => t + balanceOf(r), 0)
-  const due = thisMonth ? cents(loans.reduce((t, r) => t + interestDue(r, thisMonth.txns, thisMonth.month, thisMonth.cycle), 0)) : 0
+  const due = current ? cents(loans.reduce((t, r) => { const p = loanPeriod(r, current.now); return t + interestDue(r, current.txns, p.month, p.cycle) }, 0)) : 0
   return { loans, appTotal, interestDue: due, sheetBalance, total: cents(appTotal + due + sheetBalance) }
 }
 
+const PH = 8 * 3600_000 // the Philippines: UTC+8, no daylight saving
+const DAY = 24 * 3600_000
+
 /**
- * This month's interest still to pay on a loan: nothing once Pay interest (or a custom payment's interest part)
+ * A loan's interest runs month to month from its approval date (Philippine time). Approved Oct 28: period 1 is due
+ * Nov 28 and posts to October; unpaid, it is added to the balance once Nov 28 ends (Nov 29). Period 2 is due Dec 28
+ * and posts to November. `endsAt` is midnight after the due day. A month without that day uses its last day.
+ */
+export function loanPeriod(r: LoanRequest, now = Date.now()) {
+  let n = 1
+  while (periodAt(r, n).endsAt <= now) n++
+  return periodAt(r, n)
+}
+
+function periodAt(r: LoanRequest, n: number) {
+  const s = new Date((r.decidedAt ?? r.createdAt) + PH) // Manila wall clock, read with UTC getters
+  const y = s.getUTCFullYear(), m = s.getUTCMonth(), d = s.getUTCDate()
+  const dueAt = Date.UTC(y, m + n, Math.min(d, new Date(Date.UTC(y, m + n + 1, 0)).getUTCDate())) - PH
+  const idx = m + n - 1
+  return { n, month: idx % 12, cycle: y + Math.floor(idx / 12), dueAt, endsAt: dueAt + DAY }
+}
+
+/** The period whose due day ended in the last 3 days (for the daily carryover), or null. */
+export function lastEndedPeriod(r: LoanRequest, now = Date.now()) {
+  const cur = loanPeriod(r, now)
+  if (cur.n < 2) return null
+  const prev = periodAt(r, cur.n - 1)
+  // shortcut: a carryover the daily run missed for over 3 days is left alone (so old months aren't all added at once)
+  return now - prev.endsAt < 3 * DAY ? prev : null
+}
+
+/**
+ * This period's interest still to pay on a loan: nothing once Pay interest (or a custom payment's interest part)
  * covers it, or once it is carried over into the balance this month.
  */
 export function interestDue(r: LoanRequest, txns: Txn[], month: number, cycle: number) {

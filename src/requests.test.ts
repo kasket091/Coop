@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { depositAmount, type Member } from './rules'
 import type { Txn } from './ledger'
 import {
-  canAdminApprove, carryover, comakerMode, customPayment, interestDue, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
+  canAdminApprove, carryover, comakerMode, customPayment, interestDue, lastEndedPeriod, loanPeriod, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
 } from './requests'
 
 const zeros = () => Array(12).fill(0)
@@ -183,9 +183,12 @@ describe("this month's interest due (in the unpaid total until paid)", () => {
     expect(due([t({ kind: 'note', amount: 0, carryover: true, loanBefore: { ...loanSnapshot(sl), status: 'withdrawn' } })])).toBe(600)
   })
   it('the unpaid total adds what is due this month', () => {
-    const u = unpaidLoans([sl], 'me', 1000, { txns: [], month: 10, cycle: 2026 })
+    const oct28 = { ...sl, decidedAt: new Date(2026, 9, 28, 10).getTime() } as LoanRequest
+    const dec10 = new Date(2026, 11, 10).getTime()
+    // approved Oct 28: on Dec 10 the period running (Nov 29 – Dec 28) posts to November (month 10)
+    const u = unpaidLoans([oct28], 'me', 1000, { txns: [], now: dec10 })
     expect(u).toMatchObject({ appTotal: 6600, interestDue: 600, total: 8200 })
-    expect(unpaidLoans([sl], 'me', 1000, { txns: [t({})], month: 10, cycle: 2026 }).total).toBe(7600)
+    expect(unpaidLoans([oct28], 'me', 1000, { txns: [t({})], now: dec10 }).total).toBe(7600)
   })
 })
 
@@ -195,7 +198,7 @@ describe("a Savings Loan's upfront 10% is its first month's interest", () => {
 
   it('nothing extra is due in the month it starts (₱6,600 owed in all)', () => {
     expect(interestDue(sl, [], 10, 2026)).toBe(0)
-    expect(unpaidLoans([sl], 'me', 0, { txns: [], month: 10, cycle: 2026 }).total).toBe(6600)
+    expect(unpaidLoans([sl], 'me', 0, { txns: [], now: new Date(2026, 10, 20).getTime() }).total).toBe(6600)
   })
   it('Pay interest then takes the ₱600 off: ₱6,000 owed', () => {
     const p = payInterest(sl, 0)
@@ -236,5 +239,32 @@ describe('Pay For Savings: the missed savings of a Savings Loan, paid back', () 
     const after = { ...sl, balance: 600, principal: 0 }
     expect(monthInterest(after)).toBe(0)
     expect(payInterest(after, 0)).toMatchObject({ collected: 600, update: { balance: 0 } })
+  })
+})
+
+describe("each loan's interest is due monthly from its approval date (Philippine time)", () => {
+  const at = (y: number, m: number, d: number, h = 12) => Date.UTC(y, m, d, h - 8) // h o'clock in Manila
+  const loan = (decidedAt: number) => ({ ...req('approved', 'approved', 'approved'), decidedAt } as LoanRequest)
+
+  it('approved Oct 28: the first period runs to Nov 28, posts to October', () => {
+    const r = loan(at(2026, 9, 28, 10))
+    expect(loanPeriod(r, at(2026, 10, 10))).toEqual({ n: 1, month: 9, cycle: 2026, dueAt: at(2026, 10, 28, 0), endsAt: at(2026, 10, 29, 0) })
+    expect(loanPeriod(r, at(2026, 10, 28, 23)).n).toBe(1) // Nov 28 is still the due day
+    expect(loanPeriod(r, at(2026, 10, 29, 0) + 60_000)).toMatchObject({ n: 2, month: 10 }) // Nov 29: November's period
+  })
+  it('a month without that day uses its last day', () => {
+    const r = loan(at(2026, 0, 31))
+    expect(loanPeriod(r, at(2026, 1, 10)).dueAt).toBe(at(2026, 1, 28, 0))
+    expect(loanPeriod(r, at(2026, 2, 10))).toMatchObject({ n: 2, month: 1, dueAt: at(2026, 2, 31, 0) })
+  })
+  it('December periods post to December, then the next cycle', () => {
+    expect(loanPeriod(loan(at(2026, 10, 20)), at(2026, 11, 25))).toMatchObject({ n: 2, month: 11, cycle: 2026 })
+    expect(loanPeriod(loan(at(2026, 11, 5)), at(2027, 0, 10))).toMatchObject({ n: 2, month: 0, cycle: 2027 })
+  })
+  it('the period whose due date just passed, for the daily carryover', () => {
+    const r = loan(at(2026, 9, 28, 10))
+    expect(lastEndedPeriod(r, at(2026, 10, 29, 0, ) + 5 * 60_000)).toMatchObject({ n: 1, month: 9 })
+    expect(lastEndedPeriod(r, at(2026, 10, 20))).toBeNull() // nothing ended lately
+    expect(lastEndedPeriod(r, at(2026, 11, 5))).toBeNull() // ended over 3 days ago: left alone
   })
 })

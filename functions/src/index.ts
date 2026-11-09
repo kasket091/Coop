@@ -5,6 +5,9 @@ import { getFirestore } from 'firebase-admin/firestore'
 import { getMessaging } from 'firebase-admin/messaging'
 import { setGlobalOptions } from 'firebase-functions/v2'
 import { onDocumentWritten } from 'firebase-functions/v2/firestore'
+import { onSchedule } from 'firebase-functions/v2/scheduler'
+import type { Txn } from '../../src/ledger'
+import { balanceOf, carryover, interestDue, lastEndedPeriod, loanSnapshot, type LoanRequest } from '../../src/requests'
 import { messagesFor, type Message, type Req } from './messages'
 
 initializeApp()
@@ -43,3 +46,35 @@ export const loanRequestPush = onDocumentWritten('loanRequests/{id}', async (eve
   await Promise.all(messagesFor(before, after).map(send))
 })
 
+
+const php = (n: number) => `₱${(Math.round(n * 100) / 100).toLocaleString('en-PH', { maximumFractionDigits: 2 })}`
+const day = (ms: number) => new Date(ms).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' })
+
+/**
+ * Every day at 12:05 AM (Philippine time): a loan whose interest due date ended yesterday and is still unpaid gets
+ * that interest added to its balance, the same as the admin's Carryover button. The loan update then notifies the
+ * borrower through loanRequestPush. Running twice adds nothing: a carried-over period has no interest left due.
+ */
+export const dailyInterestCarryover = onSchedule({ schedule: '5 0 * * *', timeZone: 'Asia/Manila' }, async () => {
+  const db = getFirestore()
+  const now = Date.now()
+  const loans = await db.collection('loanRequests').where('status', '==', 'approved').get()
+  for (const d of loans.docs) {
+    const r = { ...(d.data() as LoanRequest), id: d.id }
+    const p = lastEndedPeriod(r, now)
+    if (!p) continue
+    const txns = (await db.collection('transactions').where('loanId', '==', d.id).get()).docs.map((t) => ({ ...(t.data() as Txn), id: t.id }))
+    const due = interestDue(r, txns, p.month, p.cycle)
+    if (!(due > 0)) continue
+    await db.runTransaction(async (tx) => {
+      const live = { ...((await tx.get(d.ref)).data() as LoanRequest), id: d.id }
+      if (live.status !== 'approved' || balanceOf(live) !== balanceOf(r)) return // changed meanwhile: tomorrow's run decides
+      tx.update(d.ref, carryover(live, due))
+      tx.set(db.collection('transactions').doc(), {
+        memberId: live.borrowerId, memberName: live.borrowerName, kind: 'note', amount: 0, carryover: true, loanId: d.id,
+        loanBefore: loanSnapshot(live), month: p.month, cycle: p.cycle, createdAt: now,
+        note: `Carryover (automatic): ${php(due)} interest due ${day(p.dueAt)} was not paid; balance now ${php(balanceOf(live) + due)}`,
+      })
+    })
+  }
+})

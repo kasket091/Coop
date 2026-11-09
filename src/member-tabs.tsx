@@ -1,14 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ADMIN_MEMBER_NAME } from './accounts'
 import { PushSetting } from './push'
-import { peso } from './format'
+import { dueDay, peso } from './format'
 import type { Txn } from './ledger'
 import {
-  balanceOf, comakerMode, interestDue, loanMonth, monthInterest, refLabel, requestStage, unpaidLoans, validateRequest, type LoanRequest, type LoanType,
+  balanceOf, comakerMode, interestDue, loanMonth, loanPeriod, monthInterest, refLabel, requestStage, unpaidLoans, validateRequest, type LoanRequest, type LoanType,
 } from './requests'
 import { depositAmount, loanLimit, monthsLeft } from './rules'
 import {
-  changePassword, createRequest, decideAsComaker, ledgerMonth, listFounders, signOutUser, withdrawRequest, type StoredMember,
+  changePassword, createRequest, decideAsComaker, listFounders, signOutUser, withdrawRequest, type StoredMember,
 } from './store'
 import { Calculator, CONDITIONS, quoteText, termOptions, TYPES } from './tabs'
 
@@ -17,8 +17,8 @@ const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
 
 // ---------- Loans: remaining, active, requests, closed, transactions, new request, calculator ----------
 export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: number; mine: LoanRequest[]; txns: Txn[] }) {
-  const month = ledgerMonth(year)
-  const unpaid = unpaidLoans(mine, me.uid, me.sheetLoanBalance ?? 0, { txns, month, cycle: year })
+  const now = Date.now()
+  const unpaid = unpaidLoans(mine, me.uid, me.sheetLoanBalance ?? 0, { txns, now })
   const pending = mine.filter((r) => r.status === 'pending')
   const closed = mine.filter((r) => r.status === 'paid' || r.status === 'declined' || r.status === 'withdrawn')
   return (
@@ -26,7 +26,7 @@ export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: num
       <h1 style={{ fontSize: 22 }}>My loans</h1>
       <div className={`unpaid ${unpaid.total > 0 ? 'owing' : ''}`} style={{ marginTop: 12 }}>
         <div className="unpaid-head"><span>Current loans remaining</span><b>{peso(unpaid.total)}</b></div>
-        {unpaid.interestDue > 0 && <p className="note" style={{ marginTop: 4 }}>Includes {peso(unpaid.interestDue)} interest due this month.</p>}
+        {unpaid.interestDue > 0 && <p className="note" style={{ marginTop: 4 }}>Includes {peso(unpaid.interestDue)} interest due now.</p>}
       </div>
 
       <div className="section">
@@ -34,12 +34,16 @@ export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: num
         {!unpaid.loans.length ? <p className="note">No active loans.</p> : (
           <ul className="requests">
             {unpaid.loans.map((r) => {
+              const period = loanPeriod(r, now)
+              const due = interestDue(r, txns, period.month, period.cycle)
               const paid = txns.filter((t) => t.loanId === r.id && !t.voidedAt && (t.kind === 'interest' || t.kind === 'principal' || t.settles))
               return (
                 <RequestCard key={r.id} r={r}>
                   <ul className="rows" style={{ marginTop: 8 }}>
                     <li><span>Still owed</span><b>{peso(balanceOf(r))}</b></li>
-                    {monthInterest(r) > 0 && <li><span>This month's interest</span><b>{interestDue(r, txns, month, year) > 0 ? `${peso(interestDue(r, txns, month, year))} due` : 'None due'}</b></li>}
+                    {monthInterest(r) > 0 && (due > 0
+                      ? <li><span>Interest due {dueDay(period.dueAt)}</span><b>{peso(due)}</b></li>
+                      : <li><span>Next interest due</span><b>{dueDay(loanPeriod(r, period.endsAt).dueAt)}</b></li>)}
                     <li><span>Paid so far</span><b>{peso(sum(paid.map((t) => t.amount)))}</b></li>
                   </ul>
                 </RequestCard>

@@ -46,3 +46,11 @@ it('payments, withdrawals and other edits send nothing', () => {
   expect(messagesFor(req(), req({ status: 'withdrawn' }))).toEqual([])
   expect(messagesFor(req({ status: 'approved' }), req({ status: 'paid' }))).toEqual([])
 })
+
+it('interest added to a loan (automatic or the Carryover button) tells the borrower', () => {
+  const before = req({ status: 'approved', balance: 6600, carryovers: 0, ref: '4SL', no: 18, type: 'savings', amount: 6000 })
+  const after = { ...before, balance: 7200, carryovers: 1 }
+  expect(messagesFor(before, after)).toEqual([{ to: 'b', title: 'Interest added', body: '₱600 unpaid interest was added to your 4SL #18 loan. You now owe ₱7,200.' }])
+  // a payment (balance down, no new carryover) sends nothing
+  expect(messagesFor(after, { ...after, balance: 6600 })).toEqual([])
+})

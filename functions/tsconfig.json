@@ -3,11 +3,12 @@
     "target": "ES2022",
     "module": "commonjs",
     "outDir": "lib",
-    "rootDir": "src",
+    "rootDir": "..",
     "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true
   },
-  "include": ["src"],
+  // the app's loan rules (src/requests.ts and what it uses) are compiled in, so the function charges exactly what the app shows
+  "include": ["src", "../src/requests.ts", "../src/rules.ts", "../src/ledger.ts"],
   "exclude": ["src/**/*.test.ts"]
 }

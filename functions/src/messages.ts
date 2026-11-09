@@ -5,6 +5,7 @@ export type Req = {
   status: 'pending' | 'approved' | 'declined' | 'withdrawn' | 'paid'
   comakers: Record<string, { name: string; status: 'pending' | 'approved' | 'declined' }>
   comakerIds: string[]
+  balance?: number; carryovers?: number; ref?: string; no?: number
 }
 /** `to` is a member's uid, or 'admin'. */
 export type Message = { to: string; title: string; body: string }
@@ -13,7 +14,8 @@ const LOAN: Record<string, string> = {
   regular: 'Regular loan', flex: 'Flex loan', grocery: 'Grocery loan', appliance: 'Appliance loan',
   events: 'Special Events loan', deposit: 'Loan Against Deposit', savings: 'Savings Loan',
 }
-const what = (r: Req) => `₱${r.amount.toLocaleString('en-PH', { maximumFractionDigits: 2 })} ${LOAN[r.type] ?? 'loan'}`
+const peso = (n: number) => `₱${(Math.round(n * 100) / 100).toLocaleString('en-PH', { maximumFractionDigits: 2 })}`
+const what = (r: Req) => `${peso(r.amount)} ${LOAN[r.type] ?? 'loan'}`
 const allApproved = (r: Req) => r.comakerIds.length > 0 && r.comakerIds.every((id) => r.comakers[id]?.status === 'approved')
 
 /** `before` is undefined for a new request. Payments, withdrawals and other edits send nothing. */
@@ -26,6 +28,12 @@ export function messagesFor(before: Req | undefined, after: Req): Message[] {
       ...after.comakerIds.map((id) => ({ to: id, title: 'Co-maker request', body: `${after.borrowerName} asked you to co-make a ${what(after)}. Open Hilas Coop to approve or decline.` })),
       { to: 'admin', title: 'New loan request', body: `${after.borrowerName} requested a ${what(after)}. Waiting for ${n} co-maker${n === 1 ? '' : 's'}.` },
     ]
+  }
+  // unpaid interest added to the balance (the daily carryover, or the admin's Carryover button)
+  if (before.status === 'approved' && after.status === 'approved' && (after.carryovers ?? 0) > (before.carryovers ?? 0)) {
+    const added = (after.balance ?? after.amount) - (before.balance ?? before.amount)
+    const ref = after.ref ? `${after.ref}${after.no ? ` #${after.no}` : ''} ` : ''
+    return [{ to: after.borrowerId, title: 'Interest added', body: `${peso(added)} unpaid interest was added to your ${ref}loan. You now owe ${peso(after.balance ?? after.amount)}.` }]
   }
   if (before.status !== 'pending') return []
   if (after.status === 'approved') return [{ to: after.borrowerId, title: 'Loan approved', body: `Your ${what(after)} was approved.` }]

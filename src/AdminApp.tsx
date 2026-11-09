@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { RECRUITS, startingPassword } from './accounts'
 import { backupSummary, parseBackup, type Backup } from './backup'
 import { Dashboard } from './Dashboard'
-import { MONTHS, peso } from './format'
+import { dueDay, MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
-import { balanceOf, canAdminApprove, customPayment, interestDue, loanMonth, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
+import { balanceOf, canAdminApprove, customPayment, interestDue, loanMonth, loanPeriod, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { carryoverMonths } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
@@ -367,8 +367,8 @@ function AddTxn({ m, year, onDone }: { m: StoredMember; year: number; onDone: (m
 
 /** Total unpaid loans: app loans approved but not yet paid, plus this month's interest still due. */
 function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: LoanRequest[]; txns: Txn[]; year: number }) {
-  const month = ledgerMonth(year)
-  const u = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0, { txns, month, cycle: year })
+  const now = Date.now()
+  const u = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0, { txns, now })
   const [paying, setPaying] = useState<string | null>(null)
   const [payAmount, setPayAmount] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -383,9 +383,9 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
         <span>Unpaid loans</span>
         <b>{peso(u.total)}</b>
       </div>
-      {u.interestDue > 0 && <p className="note">Includes {peso(u.interestDue)} interest due this month.</p>}
+      {u.interestDue > 0 && <p className="note">Includes {peso(u.interestDue)} interest due now.</p>}
       <ul className="unpaid-list">
-        {u.loans.map((r) => { const due = interestDue(r, txns, month, year); const pi = payInterest(r, due); // once the interest is paid, Mark as paid does the same (closes it, the savings count as saved)
+        {u.loans.map((r) => { const period = loanPeriod(r, now); const due = interestDue(r, txns, period.month, period.cycle); const pi = payInterest(r, due); // once the interest is paid, Mark as paid does the same (closes it, the savings count as saved)
           const sp = savingsPayback(r); const showSp = !!sp && sp.update.balance > 0; return (
           <li key={r.id}>
             <span>
@@ -393,7 +393,7 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
               <small>
                 approved {new Date(r.decidedAt ?? r.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
                 {monthInterest(r) > 0
-                  ? due > 0 ? ` · ${peso(due)} interest due this month` : ' · no interest due this month'
+                  ? due > 0 ? ` · ${peso(due)} interest due ${dueDay(period.dueAt)}` : ` · next interest due ${dueDay(loanPeriod(r, period.endsAt).dueAt)}`
                   : ` · ${r.quote}`}
                 {r.carryovers ? ` · carried over ${r.carryovers}×` : ''}{r.interestPayments ? ` · interest paid ${r.interestPayments}×` : ''}
               </small>
@@ -413,7 +413,7 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
                   Pay interest
                 </button>}
                 {due > 0 && <button className="btn-mini" disabled={busy === r.id}
-                  onClick={async () => await askYes(`Carry over: add this month's ${peso(due)} interest to the balance, making it ${peso(balanceOf(r) + due)}?`) && run(r.id, () => carryOverLoan(r.id, year))}>
+                  onClick={async () => await askYes(`Carry over: add the ${peso(due)} interest due ${dueDay(period.dueAt)} to the balance, making it ${peso(balanceOf(r) + due)}?`) && run(r.id, () => carryOverLoan(r.id, year))}>
                   Carryover
                 </button>}
                 <button className="btn-mini" disabled={busy === r.id} aria-expanded={paying === r.id}
