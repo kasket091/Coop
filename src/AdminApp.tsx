@@ -5,7 +5,7 @@ import { Dashboard } from './Dashboard'
 import { MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
-import { balanceOf, canAdminApprove, customPayment, interestDue, loanMonth, monthInterest, refLabel, unpaidLoans, type LoanRequest } from './requests'
+import { balanceOf, canAdminApprove, customPayment, interestDue, loanMonth, monthInterest, payInterest, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { carryoverMonths } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
@@ -386,14 +386,14 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
       </div>
       {u.interestDue > 0 && <p className="note">Includes {peso(u.interestDue)} interest due this month.</p>}
       <ul className="unpaid-list">
-        {u.loans.map((r) => (
+        {u.loans.map((r) => { const due = interestDue(r, txns, month, year); const pi = payInterest(r, due); return (
           <li key={r.id}>
             <span>
               {r.ref && <b className="ref">{refLabel(r)}</b>}<b className="loan-month">{loanMonth(r)}</b>{peso(balanceOf(r))} owed{balanceOf(r) !== r.amount ? ` (borrowed ${peso(r.amount)})` : ''}
               <small>
                 approved {new Date(r.decidedAt ?? r.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
                 {monthInterest(r) > 0
-                  ? interestDue(r, txns, month, year) > 0 ? ` · ${peso(interestDue(r, txns, month, year))} interest due this month` : ' · no interest due this month'
+                  ? due > 0 ? ` · ${peso(due)} interest due this month` : ' · no interest due this month'
                   : ` · ${r.quote}`}
                 {r.carryovers ? ` · carried over ${r.carryovers}×` : ''}{r.interestPayments ? ` · interest paid ${r.interestPayments}×` : ''}
               </small>
@@ -404,25 +404,25 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
                 Mark as paid
               </button>
               {monthInterest(r) > 0 && (<>
-                <button className="btn-mini" disabled={busy === r.id}
-                  onClick={async () => await askYes(`${m.name} paid this month's interest of ${peso(monthInterest(r))}? The ${peso(balanceOf(r))} balance stays.`) && run(r.id, () => payLoanInterest(r.id, year))}>
+                {pi.collected > 0 && <button className="btn-mini" disabled={busy === r.id}
+                  onClick={async () => await askYes(`${m.name} paid ${peso(pi.collected)} interest? What they owe on this loan goes from ${peso(balanceOf(r) + due)} to ${peso(pi.update.balance)}.`) && run(r.id, () => payLoanInterest(r.id, year))}>
                   Pay interest
-                </button>
-                <button className="btn-mini" disabled={busy === r.id}
-                  onClick={async () => await askYes(`Carry over: add ${peso(monthInterest(r))} interest to the balance, making it ${peso(balanceOf(r) + monthInterest(r))}?`) && run(r.id, () => carryOverLoan(r.id, year))}>
+                </button>}
+                {due > 0 && <button className="btn-mini" disabled={busy === r.id}
+                  onClick={async () => await askYes(`Carry over: add this month's ${peso(due)} interest to the balance, making it ${peso(balanceOf(r) + due)}?`) && run(r.id, () => carryOverLoan(r.id, year))}>
                   Carryover
-                </button>
+                </button>}
                 <button className="btn-mini" disabled={busy === r.id} aria-expanded={paying === r.id}
                   onClick={() => { setPaying(paying === r.id ? null : r.id); setPayAmount('') }}>
                   Advance/Custom Payment
                 </button>
               </>)}
             </span>
-            {paying === r.id && <CustomPay r={r} amount={payAmount} onAmount={setPayAmount} busy={busy === r.id}
+            {paying === r.id && <CustomPay r={r} due={due} amount={payAmount} onAmount={setPayAmount} busy={busy === r.id}
               onCancel={() => setPaying(null)}
               onRecord={(n) => run(r.id, () => loanCustomPayment(r.id, year, n))} />}
           </li>
-        ))}
+        ) })}
         <li>
           {editing ? (
             <span className="balance-edit">
@@ -445,11 +445,11 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
 }
 
 /** Inline form: how a custom amount splits into interest and balance, before recording it. */
-function CustomPay({ r, amount, onAmount, busy, onCancel, onRecord }: {
-  r: LoanRequest; amount: string; onAmount: (s: string) => void; busy: boolean; onCancel: () => void; onRecord: (n: number) => void
+function CustomPay({ r, due, amount, onAmount, busy, onCancel, onRecord }: {
+  r: LoanRequest; due: number; amount: string; onAmount: (s: string) => void; busy: boolean; onCancel: () => void; onRecord: (n: number) => void
 }) {
   const n = Number(amount.replace(/[^\d.]/g, '')) || 0
-  const p = n > 0 ? customPayment(r, n) : null
+  const p = n > 0 ? customPayment(r, n, due) : null
   return (
     <div className="custom-pay">
       <label htmlFor={`cp-${r.id}`}>Amount paid this month (₱)</label>
@@ -459,7 +459,7 @@ function CustomPay({ r, amount, onAmount, busy, onCancel, onRecord }: {
         : <p className="note" role="status">
             {peso(p.interestPart)} interest{p.collected > p.interestPart ? ` + ${peso(p.collected - p.interestPart)} carried-over interest` : ''}
             {' · '}{p.paidOff ? 'loan fully paid' : `new balance ${peso(p.balance)}`}
-            {p.interestPart < monthInterest(r) ? ` (${peso(monthInterest(r) - p.interestPart)} unpaid interest carries over)` : ''}
+            {p.interestPart < due ? ` (${peso(due - p.interestPart)} unpaid interest carries over)` : ''}
           </p>)}
       <span className="pay-buttons">
         <button className="btn" disabled={busy || !p || 'error' in p} onClick={() => onRecord(n)}>Record payment</button>

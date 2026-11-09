@@ -12,7 +12,7 @@ import {
 import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { auth, db, firebaseConfig } from './firebase'
 import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
-import { balanceOf, carryover, customPayment, loanSnapshot, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
+import { balanceOf, carryover, customPayment, interestDue, loanSnapshot, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { feeTopUps, payFromSavings } from './termination'
@@ -298,16 +298,25 @@ export const markLoanPaid = (id: string, year: number) =>
   })
 
 /** The borrower paid this month's interest only; the balance stays. */
-export const payLoanInterest = (id: string, year: number) =>
-  loanAction(id, year, (r) => {
-    const p = payInterest(r)
-    return { update: p.update, entries: [{ kind: 'interest', amount: p.collected, note: `This month's interest on ${php(balanceOf(r))}` }] }
+/** The loan's transactions, so a payment knows how much of this month's interest is still due. */
+const loanTxns = async (id: string) => asTxns((await getDocs(query(txns, where('loanId', '==', id)))).docs)
+
+/** This month's interest; or, when it already sits in the balance (Savings Loan upfront, a carryover), off the balance. */
+export const payLoanInterest = async (id: string, year: number) => {
+  const lt = await loanTxns(id)
+  return loanAction(id, year, (r) => {
+    const p = payInterest(r, interestDue(r, lt, ledgerMonth(year), year))
+    if (!(p.collected > 0)) throw new Error("This month's interest is already paid.")
+    const off = p.update.balance < balanceOf(r)
+    return { update: p.update, entries: [{ kind: 'interest', amount: p.collected, note: off ? `Interest paid off the balance: now ${php(p.update.balance)} owed` : `This month's interest on ${php(balanceOf(r))}` }] }
   })
+}
 
 /** Any amount paid this month: interest first, then carried-over interest, then the amount borrowed. */
-export const loanCustomPayment = (id: string, year: number, amount: number) =>
-  loanAction(id, year, (r) => {
-    const p = customPayment(r, amount)
+export const loanCustomPayment = async (id: string, year: number, amount: number) => {
+  const lt = await loanTxns(id)
+  return loanAction(id, year, (r) => {
+    const p = customPayment(r, amount, interestDue(r, lt, ledgerMonth(year), year))
     if ('error' in p) throw new Error(p.error)
     const toPrincipal = Math.round((amount - p.collected) * 100) / 100
     return {
@@ -318,13 +327,20 @@ export const loanCustomPayment = (id: string, year: number, amount: number) =>
       ],
     }
   })
+}
 
 /** Interest not paid: it is added to the balance and next month is charged on the new balance. */
-export const carryOverLoan = (id: string, year: number) =>
-  loanAction(id, year, (r) => ({
-    update: carryover(r),
-    entries: [{ kind: 'note', amount: 0, carryover: true, note: `Carryover: ${php(monthInterest(r))} interest added; balance now ${php(balanceOf(r) + monthInterest(r))}` }],
-  }))
+export const carryOverLoan = async (id: string, year: number) => {
+  const lt = await loanTxns(id)
+  return loanAction(id, year, (r) => {
+    const due = interestDue(r, lt, ledgerMonth(year), year)
+    if (!(due > 0)) throw new Error("Nothing to carry over: this month's interest is already paid or carried over.")
+    return {
+      update: carryover(r, due),
+      entries: [{ kind: 'note', amount: 0, carryover: true, note: `Carryover: ${php(due)} interest added; balance now ${php(balanceOf(r) + due)}` }],
+    }
+  })
+}
 
 // ---------- admin ----------
 export const watchAllMembers = (cb: (m: StoredMember[]) => void) =>

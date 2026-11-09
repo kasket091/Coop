@@ -188,3 +188,35 @@ describe("this month's interest due (in the unpaid total until paid)", () => {
     expect(unpaidLoans([sl], 'me', 1000, { txns: [t({})], month: 10, cycle: 2026 }).total).toBe(7600)
   })
 })
+
+describe("a Savings Loan's upfront 10% is its first month's interest", () => {
+  const NOV = new Date(2026, 10, 9).getTime()
+  const sl = { ...req('approved', 'approved', 'approved'), id: 'sl', type: 'savings', amount: 6000, principal: 6000, balance: 6600, upfront: true, createdAt: NOV, decidedAt: NOV } as LoanRequest
+
+  it('nothing extra is due in the month it starts (₱6,600 owed in all)', () => {
+    expect(interestDue(sl, [], 10, 2026)).toBe(0)
+    expect(unpaidLoans([sl], 'me', 0, { txns: [], month: 10, cycle: 2026 }).total).toBe(6600)
+  })
+  it('Pay interest then takes the ₱600 off: ₱6,000 owed', () => {
+    const p = payInterest(sl, 0)
+    expect(p).toMatchObject({ collected: 600, update: { balance: 6000, interestPayments: 1 } })
+  })
+  it('next month ₱600 is due again; paying it leaves ₱6,000', () => {
+    const paid = { ...sl, balance: 6000 }
+    expect(interestDue(paid, [], 11, 2026)).toBe(600)
+    expect(payInterest(paid, 600)).toMatchObject({ collected: 600, update: { balance: 6000 } })
+  })
+  it('a month not paid is carried over into the balance (₱6,600), and paying it later takes it off again', () => {
+    const paid = { ...sl, balance: 6000 }
+    const carried = { ...paid, ...carryover(paid, 600) }
+    expect(carried.balance).toBe(6600)
+    expect(payInterest(carried, 0)).toMatchObject({ collected: 600, update: { balance: 6000 } })
+  })
+  it('a custom payment with nothing due this month comes off the upfront interest, then the missed savings', () => {
+    expect(customPayment(sl, 600, 0)).toMatchObject({ interestPart: 0, collected: 600, balance: 6000, principal: 6000 })
+    expect(customPayment(sl, 1000, 0)).toMatchObject({ collected: 600, balance: 5600, principal: 5600 })
+  })
+  it('nothing to pay when this month is paid and no interest sits in the balance', () => {
+    expect(payInterest({ ...sl, balance: 6000 }, 0).collected).toBe(0)
+  })
+})

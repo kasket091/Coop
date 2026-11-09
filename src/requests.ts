@@ -132,6 +132,9 @@ export function unpaidLoans(all: LoanRequest[], memberId: string, sheetBalance =
  * covers it, or once it is carried over into the balance this month.
  */
 export function interestDue(r: LoanRequest, txns: Txn[], month: number, cycle: number) {
+  // a Savings Loan's 10% added upfront is its first month's interest: nothing more is due that month
+  const start = new Date(r.decidedAt ?? r.createdAt)
+  if (r.type === 'savings' && r.upfront && start.getFullYear() === cycle && start.getMonth() === month) return 0
   const thisMonth = txns.filter((t) => t.loanId === r.id && !t.voidedAt && t.cycle === cycle && t.month === month)
   // a loan carryover; not the carry-over mark that created a Savings Loan (its loan was not approved yet)
   if (thisMonth.some((t) => t.carryover && t.loanBefore?.status === 'approved')) return 0
@@ -149,14 +152,20 @@ export const balanceOf = (r: LoanRequest) => r.balance ?? r.amount
 export const monthInterest = (r: LoanRequest) =>
   r.type === 'regular' ? 0 : cents((r.type === 'savings' ? principalOf(r) : balanceOf(r)) * MONTHLY_LOANS[r.type].rate)
 
-/** Carryover: this month's interest is added to the balance; next month's interest is charged on the new balance. */
-export const carryover = (r: LoanRequest) => ({ balance: cents(balanceOf(r) + monthInterest(r)), carryovers: (r.carryovers ?? 0) + 1 })
+/** Carryover: this month's interest still due (`due`) is added to the balance. */
+export const carryover = (r: LoanRequest, due = monthInterest(r)) => ({ balance: cents(balanceOf(r) + due), carryovers: (r.carryovers ?? 0) + 1 })
 
-/** Pay interest: the borrower pays this month's interest; the balance stays. `collected` goes to the interest ledger. */
-export const payInterest = (r: LoanRequest) => ({
-  collected: monthInterest(r),
-  update: { balance: balanceOf(r), interestPayments: (r.interestPayments ?? 0) + 1 },
-})
+/**
+ * Pay interest. With interest due this month (`due`), that is what's paid and the balance stays. With none due
+ * (a Savings Loan's first month, whose 10% was added upfront, or a month already carried over), a month's interest
+ * sitting in the balance is paid off it: ₱6,600 owed becomes ₱6,000. `collected` 0 means nothing to pay.
+ */
+export function payInterest(r: LoanRequest, due = monthInterest(r)) {
+  const interestPayments = (r.interestPayments ?? 0) + 1
+  if (due > 0) return { collected: due, update: { balance: balanceOf(r), interestPayments } }
+  const inBalance = cents(Math.min(monthInterest(r), Math.max(0, balanceOf(r) - principalOf(r))))
+  return { collected: inBalance, update: { balance: cents(balanceOf(r) - inBalance), interestPayments } }
+}
 
 export const principalOf = (r: LoanRequest) => r.principal ?? r.amount
 
@@ -175,9 +184,9 @@ export type CustomPayment =
 /**
  * Any amount the borrower pays this month (e.g. ₱500). It covers this month's interest first, then interest
  * carried over earlier, then the amount borrowed. Paying less than the interest carries the shortfall over.
+ * `due` is this month's interest still unpaid (none once paid, or once it is already in the balance).
  */
-export function customPayment(r: LoanRequest, paid: number): CustomPayment {
-  const due = monthInterest(r)
+export function customPayment(r: LoanRequest, paid: number, due = monthInterest(r)): CustomPayment {
   const balance = balanceOf(r)
   const owed = cents(balance + due)
   if (!(paid > 0)) return { error: 'Enter the amount paid.' }
