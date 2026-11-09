@@ -157,6 +157,14 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
     if (!window.confirm(`Restore ${m.name}'s account? Loans and the dividend come back.`)) return
     try { await restoreMember(m, year); setMsg({ ok: true, text: `${m.name} is active again.` }) } catch (err) { setMsg({ ok: false, text: (err as Error).message }) }
   }
+  // a month clicked on the year strip: its transactions are highlighted and scrolled to (`at` re-scrolls on a repeat click)
+  const [jump, setJump] = useState<{ month: number; at: number } | null>(null)
+  useEffect(() => {
+    if (!jump) return
+    const target = document.querySelector('.txns li.hl') ?? document.getElementById('txn-history')
+    target?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' })
+  }, [jump])
+  const jumpCount = jump ? txns.filter((t) => t.month === jump.month && t.cycle === year).length : 0
   const recruiter = members.find((x) => x.uid === m.recruiterId)
   const expected = m.founder ? RECRUITS[m.name] ?? [] : []
 
@@ -186,6 +194,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
   return (
     <section>
       <MySavings m={m} coop={coop} year={year} action={<button className="link" onClick={() => onBack()}>Back</button>}
+        onMonth={(month) => setJump({ month, at: Date.now() })}
         termination={m.terminated ? { ...m.terminated, unpaid: unpaidTotal } : undefined}
         extra={<>
           {m.terminated
@@ -208,7 +217,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
         </div>
       )}
 
-      <div className="section">
+      <div className="section" id="txn-history">
         <h2>Transactions</h2>
         {m.terminated
           ? <p className="note">This account is terminated, so no transactions can be recorded. Restore the account first.</p>
@@ -217,7 +226,8 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
             <CarrySavings m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
           </>}
         {msg && <p className={msg.ok ? 'success' : 'alert'} role="status">{msg.text}</p>}
-        <TxnList txns={txns} onVoid={askVoid} />
+        {jump && <p className="note" role="status">{jumpCount ? `${MONTHS[jump.month]}: ${jumpCount} entr${jumpCount === 1 ? 'y' : 'ies'} highlighted.` : `No ${MONTHS[jump.month]} entries yet.`} <button className="link inline" onClick={() => setJump(null)}>Clear</button></p>}
+        <TxnList txns={txns} onVoid={askVoid} highlight={jump ? { month: jump.month, cycle: year } : undefined} />
       </div>
 
       <div className="section">

@@ -6,8 +6,10 @@ import type { Summary } from './store'
 import { terminationPayout } from './termination'
 
 /** One member's locked year. Used by the member's Savings tab and the admin's member view. */
-export function MySavings({ m, coop, year, action, extra, termination }: {
+export function MySavings({ m, coop, year, action, extra, termination, onMonth }: {
   m: Member; coop: CoopSummary; year: number; action?: ReactNode; extra?: ReactNode
+  /** when set, each month is a button (the admin jumps to that month's transactions) */
+  onMonth?: (month: number) => void
   /** set when the account is terminated: the reason, the figures saved at termination, and any loans still owed */
   termination?: { reason: string; unpaid: number; saved?: number; fee?: number; loansDeducted?: number; payout?: number; stillOwed?: number }
 }) {
@@ -36,11 +38,11 @@ export function MySavings({ m, coop, year, action, extra, termination }: {
       <ol className="year-strip" aria-label="Contributions by month">
         {MONTHS.map((mo, i) => {
           const st = state(i)
+          const label = `${mo}: ${st === 'open' ? 'upcoming' : st === 'due' ? 'next due, 1st to 7th' : st === 'carried' ? 'carried over to a Savings Loan' : st}`
+          const body = <>{mo}{st === 'paid' && <IconCheck />}{(st === 'missed' || st === 'carried') && <IconAlert />}</>
           return (
-            <li key={mo} className={`cell ${st}`} aria-label={`${mo}: ${st === 'open' ? 'upcoming' : st === 'due' ? 'next due, 1st to 7th' : st === 'carried' ? 'carried over to a Savings Loan' : st}`}>
-              {mo}
-              {st === 'paid' && <IconCheck />}
-              {(st === 'missed' || st === 'carried') && <IconAlert />}
+            <li key={mo} className={`cell ${st}`} aria-label={onMonth ? undefined : label}>
+              {onMonth ? <button className="cell-btn" onClick={() => onMonth(i)} aria-label={`${label}. Show ${mo} transactions`}>{body}</button> : body}
             </li>
           )
         })}
