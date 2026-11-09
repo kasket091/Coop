@@ -228,7 +228,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
           </>}
         {msg && <p className={msg.ok ? 'success' : 'alert'} role="status">{msg.text}</p>}
         {jump && <p className="note" role="status">{jumpCount ? `${MONTHS[jump.month]}: ${jumpCount} entr${jumpCount === 1 ? 'y' : 'ies'} highlighted.` : `No ${MONTHS[jump.month]} entries yet.`} <button className="link inline" onClick={() => setJump(null)}>Clear</button></p>}
-        <TxnList txns={txns} onVoid={askVoid} rows={8} highlight={jump ? { month: jump.month, cycle: year } : undefined} />
+        <TxnList txns={txns} onVoid={askVoid} rows={4} highlight={jump ? { month: jump.month, cycle: year } : undefined} />
       </div>
 
       <div className="section">

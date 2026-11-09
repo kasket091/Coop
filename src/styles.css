@@ -351,7 +351,7 @@ a.btn.wide { display: flex; text-align: center; }
 .segmented button { padding: 4px 6px; font-size: 13px; line-height: 1.2; }
 .advance-sub { display: block; font-size: 13px; font-weight: 400; color: var(--muted); }
 
-/* admin member page: 8 entries tall, the rest scroll inside (TxnList rows) */
+/* admin member page: 4 entries tall, the rest scroll inside (TxnList rows) */
 .txns.scroll { overflow-y: auto; overscroll-behavior: contain; }
 .ask textarea { display: block; width: 100%; padding: 10px 12px; margin-bottom: 14px; border: 1.5px solid var(--line); border-radius: var(--radius); font: inherit; resize: vertical; }
 
@@ -363,3 +363,5 @@ a.btn.wide { display: flex; text-align: center; }
 @media (max-width: 480px) { .segmented:has(> :nth-child(4)) { grid-auto-flow: row; grid-template-columns: 1fr 1fr; } }
 .notes-list { margin-top: 14px; }
 .seg-count { display: block; font-size: 17px; line-height: 1.1; }
+/* unpaid loan entries: the buttons sit under the loan, each the full width */
+.unpaid-list .loan-actions { flex-basis: 100%; justify-items: stretch; }
