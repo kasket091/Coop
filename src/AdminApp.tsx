@@ -38,7 +38,8 @@ export function AdminApp({ year }: { year: number }) {
   // accounts terminated before the fee counted Savings Loans paid off: the rest of the 20% is booked once
   useEffect(() => { if (members && txns.length) bookFeeTopUps(members, txns, year).catch(() => {}) }, [members, txns, year])
 
-  const ready = requests.filter(canAdminApprove).length
+  // every loan request still waiting for a decision (co-makers' or the admin's)
+  const ready = requests.filter((r) => r.status === 'pending').length
   const tabs: TabDef<Tab>[] = [
     { id: 'members', label: 'Members', Icon: IconSavings },
     { id: 'loans', label: 'Loans', Icon: IconPay },
