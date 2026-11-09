@@ -630,10 +630,10 @@ function LoansAdmin({ requests, members, txns, year }: { requests: LoanRequest[]
       <h1 style={{ fontSize: 22 }}>Loans</h1>
       <p className="plan">{peso(total)} owed on {active.length} app loan{active.length === 1 ? '' : 's'}</p>
       <div className="segmented" role="tablist" aria-label="Loan category">
-        <button role="tab" aria-selected={view === 'advance'} onClick={() => setView('advance')}>Advance Payment ({advance.length})</button>
-        <button role="tab" aria-selected={view === 'active'} onClick={() => setView('active')}>Active Loans ({active.length})</button>
-        <button role="tab" aria-selected={view === 'closed'} onClick={() => setView('closed')}>Closed Loans ({closed.length})</button>
-        <button role="tab" aria-selected={view === 'notes'} onClick={() => setView('notes')}>Notes ({Object.keys(notes).length})</button>
+        <button role="tab" aria-selected={view === 'advance'} onClick={() => setView('advance')}><b className="seg-count">{advance.length}</b>Advance Payment</button>
+        <button role="tab" aria-selected={view === 'active'} onClick={() => setView('active')}><b className="seg-count">{active.length}</b>Active Loans</button>
+        <button role="tab" aria-selected={view === 'closed'} onClick={() => setView('closed')}><b className="seg-count">{closed.length}</b>Closed Loans</button>
+        <button role="tab" aria-selected={view === 'notes'} onClick={() => setView('notes')}><b className="seg-count">{Object.keys(notes).length}</b>Notes</button>
       </div>
       <div className="field"><label htmlFor="lq">Search by name</label>
         <input id="lq" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" /></div>
