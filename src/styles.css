@@ -332,3 +332,9 @@ input.locked { background: var(--cream); color: var(--navy); font-weight: 700; }
 .cell-btn:focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; }
 .cell:has(.cell-btn):hover { filter: brightness(0.95); }
 .txns li.hl { background: #d8f6fc; scroll-margin: 80px; }
+
+/* in-app confirm / reason pop-up (dialog.tsx) */
+.ask { width: min(420px, calc(100vw - 32px)); padding: 20px 18px; border: 0; border-radius: var(--radius); background: #fff; color: var(--navy); box-shadow: 0 12px 40px rgba(28, 27, 87, 0.25); }
+.ask::backdrop { background: rgba(28, 27, 87, 0.45); }
+.ask p { margin: 0 0 14px; line-height: 1.45; }
+.ask input { display: block; width: 100%; min-height: 48px; padding: 0 14px; margin-bottom: 14px; border: 1.5px solid var(--line); border-radius: var(--radius); font: inherit; }

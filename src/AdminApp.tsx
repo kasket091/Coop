@@ -9,6 +9,7 @@ import { balanceOf, canAdminApprove, customPayment, loanMonth, monthInterest, re
 import { carryoverMonths } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
+import { askText, askYes } from './dialog'
 import { coopSummary } from './rules'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
@@ -149,12 +150,12 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
   const flagReason = flag ? `3 carryover months in a row (${flag.months.map((i) => MONTHS[i]).join(', ')}) and ${MONTHS[flag.fourth]} not paid.` : ''
   const unpaidTotal = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0).total
   const terminate = async () => {
-    const reason = window.prompt(`Terminate ${m.name}? Their savings (less the 20% fee) will pay their unpaid loans, which then close. Loans and the projected dividend are disabled. Reason:`, flagReason || '')
+    const reason = await askText(`Terminate ${m.name}? Their savings (less the 20% fee) will pay their unpaid loans, which then close. Loans and the projected dividend are disabled. Reason:`, flagReason || '')
     if (!reason) return
     try { await terminateMember(m, reason, year, requests); setMsg({ ok: true, text: `${m.name} is terminated. Their loans were paid from savings.` }) } catch (err) { setMsg({ ok: false, text: (err as Error).message }) }
   }
   const restore = async () => {
-    if (!window.confirm(`Restore ${m.name}'s account? Loans and the dividend come back.`)) return
+    if (!await askYes(`Restore ${m.name}'s account? Loans and the dividend come back.`)) return
     try { await restoreMember(m, year); setMsg({ ok: true, text: `${m.name} is active again.` }) } catch (err) { setMsg({ ok: false, text: (err as Error).message }) }
   }
   // a month clicked on the year strip: its transactions are highlighted and scrolled to (`at` re-scrolls on a repeat click)
@@ -185,7 +186,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
     catch { setMsg({ ok: false, text: "Couldn't save. Check your connection." }) } finally { setBusy(false) }
   }
   const askVoid = async (t: Txn) => {
-    const reason = window.prompt(`Void this ${t.kind} entry${t.amount ? ` of ${peso(t.amount)}` : ''}? Type the reason:`)
+    const reason = await askText(`Void this ${t.kind} entry${t.amount ? ` of ${peso(t.amount)}` : ''}? Type the reason:`)
     if (!reason) return
     setMsg(null)
     try { await voidTransaction(t, reason, year); setMsg({ ok: true, text: 'Voided. Totals updated.' }) } catch (err) { setMsg({ ok: false, text: (err as Error).message }) }
@@ -275,7 +276,7 @@ function CarrySavings({ m, year, onDone }: { m: StoredMember; year: number; onDo
   if (!open) return <button className="btn-mini carry-open" onClick={() => setOpen(true)}>Carry over missed savings</button>
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!window.confirm(`Carry over ${m.name}'s ${MONTHS[month]} savings of ${peso(n)}? A Savings Loan of ${peso(Math.round(n * 110) / 100)} (with 10% added) starts now.`)) return
+    if (!await askYes(`Carry over ${m.name}'s ${MONTHS[month]} savings of ${peso(n)}? A Savings Loan of ${peso(Math.round(n * 110) / 100)} (with 10% added) starts now.`)) return
     setBusy(true); setError(null)
     try {
       const ref = await carryOverSavings(m, month, n, year)
@@ -397,20 +398,20 @@ function UnpaidLoans({ m, requests, year }: { m: StoredMember; requests: LoanReq
             </span>
             <span className="loan-actions">
               <button className="btn-mini" disabled={busy === r.id}
-                onClick={() => window.confirm(`Mark ${m.name}'s loan as fully paid (${peso(balanceOf(r))})?`) && run(r.id, () => markLoanPaid(r.id, year))}>
+                onClick={async () => await askYes(`Mark ${m.name}'s loan as fully paid (${peso(balanceOf(r))})?`) && run(r.id, () => markLoanPaid(r.id, year))}>
                 Mark as paid
               </button>
               <button className="btn-mini" disabled={busy === r.id}
-                onClick={() => window.confirm(`Close this loan WITHOUT recording any money? Use this only for a test loan or one entered by mistake.`) && run(r.id, () => closeLoanNoMoney(r.id))}>
+                onClick={async () => await askYes(`Close this loan WITHOUT recording any money? Use this only for a test loan or one entered by mistake.`) && run(r.id, () => closeLoanNoMoney(r.id))}>
                 Close (no money)
               </button>
               {monthInterest(r) > 0 && (<>
                 <button className="btn-mini" disabled={busy === r.id}
-                  onClick={() => window.confirm(`${m.name} paid this month's interest of ${peso(monthInterest(r))}? The ${peso(balanceOf(r))} balance stays.`) && run(r.id, () => payLoanInterest(r.id, year))}>
+                  onClick={async () => await askYes(`${m.name} paid this month's interest of ${peso(monthInterest(r))}? The ${peso(balanceOf(r))} balance stays.`) && run(r.id, () => payLoanInterest(r.id, year))}>
                   Pay interest
                 </button>
                 <button className="btn-mini" disabled={busy === r.id}
-                  onClick={() => window.confirm(`Carry over: add ${peso(monthInterest(r))} interest to the balance, making it ${peso(balanceOf(r) + monthInterest(r))}?`) && run(r.id, () => carryOverLoan(r.id, year))}>
+                  onClick={async () => await askYes(`Carry over: add ${peso(monthInterest(r))} interest to the balance, making it ${peso(balanceOf(r) + monthInterest(r))}?`) && run(r.id, () => carryOverLoan(r.id, year))}>
                   Carryover
                 </button>
                 <button className="btn-mini" disabled={busy === r.id} aria-expanded={paying === r.id}
@@ -498,7 +499,7 @@ function Requests({ requests, year }: { requests: LoanRequest[]; year: number })
               <button className="btn" disabled={!canAdminApprove(r) || busy === r.id} onClick={() => decide(r.id, 'approved')}>Approve loan</button>
               <button className="copy" disabled={busy === r.id} onClick={() => decide(r.id, 'declined')}>Decline</button>
               <button className="btn-mini" disabled={busy === r.id}
-                onClick={() => window.confirm(`Approve ${r.borrowerName}'s ${peso(r.amount)} loan now, without waiting for the co-makers?`) && decide(r.id, 'approved', true)}>
+                onClick={async () => await askYes(`Approve ${r.borrowerName}'s ${peso(r.amount)} loan now, without waiting for the co-makers?`) && decide(r.id, 'approved', true)}>
                 Walay Kurat Approve Dritso
               </button>
             </div>

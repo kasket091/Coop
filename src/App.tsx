@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AdminApp } from './AdminApp'
+import { DialogHost } from './dialog'
 import { Login } from './Login'
 import { MemberApp } from './MemberApp'
 import { DEFAULT_CYCLE_YEAR } from './rules'
@@ -13,6 +14,10 @@ export default function App() {
   useEffect(() => onSession(setSession), [])
   useEffect(() => (session ? watchCycle(setYear) : undefined), [session])
 
+  return <>{screen(session, year)}<DialogHost /></>
+}
+
+function screen(session: Session | null | undefined, year: number) {
   if (session === undefined) return <Shell year={year}><Loading /></Shell>
   if (session === null) return <Login year={year} />
   if (session.kind === 'admin') return <AdminApp year={year} />
