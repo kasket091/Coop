@@ -26,7 +26,7 @@ export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: num
       <h1 style={{ fontSize: 22 }}>My loans</h1>
       <div className={`unpaid ${unpaid.total > 0 ? 'owing' : ''}`} style={{ marginTop: 12 }}>
         <div className="unpaid-head"><span>Current loans remaining</span><b>{peso(unpaid.total)}</b></div>
-        {unpaid.interestDue > 0 && <p className="note" style={{ marginTop: 4 }}>Includes {peso(unpaid.interestDue)} interest due now.</p>}
+        {unpaid.interestDue > 0 && <p className="note" style={{ marginTop: 4 }}>Includes {peso(unpaid.interestDue)} interest not yet paid (see each loan for its due date).</p>}
       </div>
 
       <div className="section">
@@ -35,7 +35,7 @@ export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: num
           <ul className="requests">
             {unpaid.loans.map((r) => {
               const period = loanPeriod(r, now)
-              const due = interestDue(r, txns, period.month, period.cycle)
+              const due = interestDue(r, txns, period)
               const paid = txns.filter((t) => t.loanId === r.id && !t.voidedAt && (t.kind === 'interest' || t.kind === 'principal' || t.settles))
               return (
                 <RequestCard key={r.id} r={r}>
@@ -43,6 +43,7 @@ export function LoansTab({ me, year, mine, txns }: { me: StoredMember; year: num
                     <li><span>Still owed</span><b>{peso(balanceOf(r))}</b></li>
                     {monthInterest(r) > 0 && (due > 0
                       ? <li><span>Interest due {dueDay(period.dueAt)}</span><b>{peso(due)}</b></li>
+                      : period.last ? <li><span>Pay in full by</span><b>{dueDay(period.dueAt)}</b></li>
                       : <li><span>Next interest due</span><b>{dueDay(loanPeriod(r, period.endsAt).dueAt)}</b></li>)}
                     <li><span>Paid so far</span><b>{peso(sum(paid.map((t) => t.amount)))}</b></li>
                   </ul>

@@ -9,6 +9,8 @@ export type Txn = {
   loanBefore?: LoanSnapshot
   /** marks a month where the member's interest was carried over (shown red on the dashboard) */
   carryover?: boolean
+  /** which interest period of its loan this entry pays or carries over (requests.ts loanPeriod) */
+  period?: number
   /** a Savings Loan was paid off: its carried amount now counts as saved */
   settles?: boolean
 }

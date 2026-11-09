@@ -123,53 +123,57 @@ export function requestStage(r: LoanRequest): string {
 export function unpaidLoans(all: LoanRequest[], memberId: string, sheetBalance = 0, current?: { txns: Txn[]; now: number }) {
   const loans = all.filter((r) => r.borrowerId === memberId && r.status === 'approved')
   const appTotal = loans.reduce((t, r) => t + balanceOf(r), 0)
-  const due = current ? cents(loans.reduce((t, r) => { const p = loanPeriod(r, current.now); return t + interestDue(r, current.txns, p.month, p.cycle) }, 0)) : 0
+  const due = current ? cents(loans.reduce((t, r) => t + interestDue(r, current.txns, loanPeriod(r, current.now)), 0)) : 0
   return { loans, appTotal, interestDue: due, sheetBalance, total: cents(appTotal + due + sheetBalance) }
 }
 
 const PH = 8 * 3600_000 // the Philippines: UTC+8, no daylight saving
 const DAY = 24 * 3600_000
 
-/**
- * A loan's interest runs month to month from its approval date (Philippine time). Approved Oct 28: period 1 is due
- * Nov 28 and posts to October; unpaid, it is added to the balance once Nov 28 ends (Nov 29). Period 2 is due Dec 28
- * and posts to November. `endsAt` is midnight after the due day. A month without that day uses its last day.
- */
-export function loanPeriod(r: LoanRequest, now = Date.now()) {
-  let n = 1
-  while (periodAt(r, n).endsAt <= now) n++
-  return periodAt(r, n)
-}
+export type LoanPeriod = { n: number; startsAt: number; dueAt: number; endsAt: number; last: boolean }
 
-function periodAt(r: LoanRequest, n: number) {
+/**
+ * A loan's interest runs month to month (Philippine time) from its start: the approval date, or for a Savings Loan the
+ * missed month's savings deadline (the 7th). Approved Oct 28: period 1 is due Nov 28; unpaid, it is added to the
+ * balance once Nov 28 ends. A month without that day uses its last day. December 15 is every loan's last due date.
+ */
+function periodAt(r: LoanRequest, n: number): LoanPeriod {
   const s = new Date((r.decidedAt ?? r.createdAt) + PH) // Manila wall clock, read with UTC getters
-  const y = s.getUTCFullYear(), m = s.getUTCMonth(), d = s.getUTCDate()
-  const dueAt = Date.UTC(y, m + n, Math.min(d, new Date(Date.UTC(y, m + n + 1, 0)).getUTCDate())) - PH
-  const idx = m + n - 1
-  return { n, month: idx % 12, cycle: y + Math.floor(idx / 12), dueAt, endsAt: dueAt + DAY }
+  const y = s.getUTCFullYear()
+  const [m, d] = r.type === 'savings' && r.carriedMonth !== undefined ? [r.carriedMonth, 7] : [s.getUTCMonth(), s.getUTCDate()]
+  const day = (k: number) => Date.UTC(y, m + k, Math.min(d, new Date(Date.UTC(y, m + k + 1, 0)).getUTCDate())) - PH
+  const deadline = Date.UTC(y, 11, 15) - PH
+  const startsAt = n === 1 ? (r.type === 'savings' && r.carriedMonth !== undefined ? day(0) : r.decidedAt ?? r.createdAt) : day(n - 1) + DAY
+  const dueAt = Math.min(day(n), deadline)
+  return { n, startsAt, dueAt, endsAt: dueAt + DAY, last: dueAt === deadline }
 }
 
-/** The period whose due day ended in the last 3 days (for the daily carryover), or null. */
-export function lastEndedPeriod(r: LoanRequest, now = Date.now()) {
-  const cur = loanPeriod(r, now)
-  if (cur.n < 2) return null
-  const prev = periodAt(r, cur.n - 1)
-  // shortcut: a carryover the daily run missed for over 3 days is left alone (so old months aren't all added at once)
-  return now - prev.endsAt < 3 * DAY ? prev : null
+/** The period running at `now` (the last one, Dec 15's, once that has passed). */
+export function loanPeriod(r: LoanRequest, now = Date.now()): LoanPeriod {
+  let p = periodAt(r, 1)
+  while (!p.last && p.endsAt <= now) p = periodAt(r, p.n + 1)
+  return p
+}
+
+/** Every period whose due day has ended, oldest first (the daily carryover adds those still unpaid). */
+export function endedPeriods(r: LoanRequest, now = Date.now()): LoanPeriod[] {
+  const out: LoanPeriod[] = []
+  for (let p = periodAt(r, 1); p.endsAt <= now; p = periodAt(r, p.n + 1)) { out.push(p); if (p.last) break }
+  return out
 }
 
 /**
- * This period's interest still to pay on a loan: nothing once Pay interest (or a custom payment's interest part)
- * covers it, or once it is carried over into the balance this month.
+ * A period's interest still to pay: nothing once Pay interest (or a custom payment's interest part) covers it, or
+ * once it is carried over into the balance. Entries count by their `period` tag, or (older ones) by their date.
  */
-export function interestDue(r: LoanRequest, txns: Txn[], month: number, cycle: number) {
-  // a Savings Loan's 10% added upfront is its first month's interest: nothing more is due that month
-  const start = new Date(r.decidedAt ?? r.createdAt)
-  if (r.type === 'savings' && r.upfront && start.getFullYear() === cycle && start.getMonth() === month) return 0
-  const thisMonth = txns.filter((t) => t.loanId === r.id && !t.voidedAt && t.cycle === cycle && t.month === month)
+export function interestDue(r: LoanRequest, txns: Txn[], p: LoanPeriod) {
+  // a Savings Loan's 10% added upfront is its first month's interest
+  if (r.type === 'savings' && r.upfront && p.n === 1) return 0
+  const inPeriod = (t: Txn) => (t.period !== undefined ? t.period === p.n : t.createdAt >= p.startsAt && t.createdAt < p.endsAt)
+  const mine = txns.filter((t) => t.loanId === r.id && !t.voidedAt && inPeriod(t))
   // a loan carryover; not the carry-over mark that created a Savings Loan (its loan was not approved yet)
-  if (thisMonth.some((t) => t.carryover && t.loanBefore?.status === 'approved')) return 0
-  const paid = thisMonth.filter((t) => t.kind === 'interest').reduce((sum, t) => sum + t.amount, 0)
+  if (mine.some((t) => t.carryover && t.loanBefore?.status === 'approved')) return 0
+  const paid = mine.filter((t) => t.kind === 'interest').reduce((sum, t) => sum + t.amount, 0)
   return cents(Math.max(0, monthInterest(r) - paid))
 }
 

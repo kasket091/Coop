@@ -224,10 +224,11 @@ export async function rebuildLedger(memberId: string, year: number): Promise<voi
 }
 
 /** Admin records savings or interest received (not tied to a loan). */
-export async function addTransaction(m: StoredMember, kind: 'savings' | 'interest', amount: number, month: number, note: string, year: number) {
+/** Savings received (the admin's Record savings). */
+export async function addTransaction(m: StoredMember, amount: number, month: number, note: string, year: number) {
   if (!(amount > 0)) throw new Error('Enter an amount above ₱0.')
   if (m.terminated) throw new Error('This account is terminated. Restore it to record transactions.')
-  await setDoc(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind, amount, month, note }, year, Date.now()))
+  await setDoc(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'savings', amount, month, note }, year, Date.now()))
   await rebuildLedger(m.uid, year)
 }
 
@@ -296,7 +297,7 @@ export async function adminDecide(id: string, status: 'approved' | 'declined', y
  * can be voided) and updates the loan. Interest actually paid counts toward the dividend; carried interest
  * only once it is paid.
  */
-async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number | boolean>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean; month?: number; settles?: boolean }[] }) {
+async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number | boolean>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean; month?: number; settles?: boolean; period?: number }[] }) {
   let memberId = ''
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
@@ -344,12 +345,12 @@ export const payLoanInterest = async (id: string, year: number) => {
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
     const period = loanPeriod(r)
-    const p = payInterest(r, interestDue(r, lt, period.month, period.cycle))
+    const p = payInterest(r, interestDue(r, lt, period))
     if (!(p.collected > 0)) throw new Error("This period's interest is already paid.")
     const off = p.update.balance < balanceOf(r)
     const update: Record<string, string | number> = { ...p.update }
     if (p.update.balance <= 0) Object.assign(update, { status: 'paid', paidAt: Date.now() })
-    return { update, entries: [{ kind: 'interest', amount: p.collected, month: period.month, note: off ? `Interest paid off the balance: now ${php(p.update.balance)} owed` : `Interest due ${dueDay(period.dueAt)} on ${php(balanceOf(r))}` }] }
+    return { update, entries: [{ kind: 'interest', amount: p.collected, period: period.n, note: off ? `Interest paid off the balance: now ${php(p.update.balance)} owed` : `Interest due ${dueDay(period.dueAt)} on ${php(balanceOf(r))}` }] }
   })
 }
 
@@ -370,14 +371,14 @@ export const loanCustomPayment = async (id: string, year: number, amount: number
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
     const period = loanPeriod(r)
-    const p = customPayment(r, amount, interestDue(r, lt, period.month, period.cycle))
+    const p = customPayment(r, amount, interestDue(r, lt, period))
     if ('error' in p) throw new Error(p.error)
     const toPrincipal = Math.round((amount - p.collected) * 100) / 100
     return {
       update: { balance: p.balance, principal: p.principal, customPayments: (r.customPayments ?? 0) + 1, ...(p.paidOff ? { status: 'paid', paidAt: Date.now() } : {}) },
       entries: [
-        ...(p.collected > 0 ? [{ kind: 'interest' as const, amount: p.collected, month: period.month, note: `Custom payment of ${php(amount)}: interest part` }] : []),
-        ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, month: period.month, note: `Custom payment of ${php(amount)}: off the balance` }] : []),
+        ...(p.collected > 0 ? [{ kind: 'interest' as const, amount: p.collected, period: period.n, note: `Custom payment of ${php(amount)}: interest part` }] : []),
+        ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, period: period.n, note: `Custom payment of ${php(amount)}: off the balance` }] : []),
       ],
     }
   })
@@ -388,11 +389,11 @@ export const carryOverLoan = async (id: string, year: number) => {
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
     const period = loanPeriod(r)
-    const due = interestDue(r, lt, period.month, period.cycle)
+    const due = interestDue(r, lt, period)
     if (!(due > 0)) throw new Error("Nothing to carry over: this period's interest is already paid or carried over.")
     return {
       update: carryover(r, due),
-      entries: [{ kind: 'note', amount: 0, carryover: true, month: period.month, note: `Carryover: ${php(due)} interest added; balance now ${php(balanceOf(r) + due)}` }],
+      entries: [{ kind: 'note', amount: 0, carryover: true, period: period.n, note: `Carryover: ${php(due)} interest added; balance now ${php(balanceOf(r) + due)}` }],
     }
   })
 }
@@ -583,7 +584,7 @@ export async function ensureRefs(year: number): Promise<void> {
 }
 
 /** Pays a loan from savings at termination: in full (closes it) or in part (stays active with the rest owed). */
-type LoanActionResult = { update: Record<string, string | number | boolean>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean; month?: number; settles?: boolean }[] }
+type LoanActionResult = { update: Record<string, string | number | boolean>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean; month?: number; settles?: boolean; period?: number }[] }
 
 const payLoanFromSavings = (id: string, year: number, amount: number, full: boolean) =>
   loanAction(id, year, (r): LoanActionResult => {

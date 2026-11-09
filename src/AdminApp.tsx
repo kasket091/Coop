@@ -331,8 +331,8 @@ function RecruiterLine({ m, recruiter, board, year, onOpen }: {
 }
 
 /** Record savings or interest received; it is added to the history (mistakes are voided, never edited). */
+/** Record savings received (loan interest is recorded with the buttons on each unpaid loan). */
 function AddTxn({ m, year, onDone }: { m: StoredMember; year: number; onDone: (msg: string) => void }) {
-  const [kind, setKind] = useState<'savings' | 'interest'>('savings')
   const [month, setMonth] = useState(ledgerMonth(year))
   const [amount, setAmount] = useState(String(m.heads * 500))
   const [note, setNote] = useState('')
@@ -343,24 +343,20 @@ function AddTxn({ m, year, onDone }: { m: StoredMember; year: number; onDone: (m
     const n = Number(amount.replace(/[^\d.]/g, '')) || 0
     setBusy(true); setError(null)
     try {
-      await addTransaction(m, kind, n, month, note.trim(), year)
-      onDone(`Recorded ${peso(n)} ${kind} for ${MONTHS[month]}.`); setNote('')
+      await addTransaction(m, n, month, note.trim(), year)
+      onDone(`Recorded ${peso(n)} savings for ${MONTHS[month]}.`); setNote('')
     } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
   }
   return (
     <form className="add-txn" onSubmit={submit}>
       <div className="add-txn-row">
-        <div className="field"><label htmlFor="tk">Type</label>
-          <select id="tk" value={kind} onChange={(e) => { const k = e.target.value as 'savings' | 'interest'; setKind(k); setAmount(k === 'savings' ? String(m.heads * 500) : '') }}>
-            <option value="savings">Savings</option><option value="interest">Interest</option>
-          </select></div>
         <div className="field"><label htmlFor="tm">For month</label>
           <select id="tm" value={month} onChange={(e) => setMonth(Number(e.target.value))}>{MONTHS.map((mo, i) => <option key={mo} value={i}>{mo}</option>)}</select></div>
         <div className="field"><label htmlFor="ta">Amount (₱)</label><input id="ta" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
       </div>
       <div className="field"><label htmlFor="tn">Note (optional)</label><input id="tn" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. paid by GCash" /></div>
       {error && <p className="alert" role="alert">{error}</p>}
-      <button className="btn wide" disabled={busy}>{busy ? 'Recording…' : 'Record transaction'}</button>
+      <button className="btn wide" disabled={busy}>{busy ? 'Recording…' : 'Record savings'}</button>
     </form>
   )
 }
@@ -383,9 +379,9 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
         <span>Unpaid loans</span>
         <b>{peso(u.total)}</b>
       </div>
-      {u.interestDue > 0 && <p className="note">Includes {peso(u.interestDue)} interest due now.</p>}
+      {u.interestDue > 0 && <p className="note">Includes {peso(u.interestDue)} interest not yet paid (see each loan for its due date).</p>}
       <ul className="unpaid-list">
-        {u.loans.map((r) => { const period = loanPeriod(r, now); const due = interestDue(r, txns, period.month, period.cycle); const pi = payInterest(r, due); // once the interest is paid, Mark as paid does the same (closes it, the savings count as saved)
+        {u.loans.map((r) => { const period = loanPeriod(r, now); const due = interestDue(r, txns, period); const pi = payInterest(r, due); // once the interest is paid, Mark as paid does the same (closes it, the savings count as saved)
           const sp = savingsPayback(r); const showSp = !!sp && sp.update.balance > 0; return (
           <li key={r.id}>
             <span>
@@ -393,7 +389,7 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
               <small>
                 approved {new Date(r.decidedAt ?? r.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
                 {monthInterest(r) > 0
-                  ? due > 0 ? ` · ${peso(due)} interest due ${dueDay(period.dueAt)}` : ` · next interest due ${dueDay(loanPeriod(r, period.endsAt).dueAt)}`
+                  ? due > 0 ? ` · ${peso(due)} interest due ${dueDay(period.dueAt)}` : period.last ? ` · pay in full by ${dueDay(period.dueAt)}` : ` · next interest due ${dueDay(loanPeriod(r, period.endsAt).dueAt)}`
                   : ` · ${r.quote}`}
                 {r.carryovers ? ` · carried over ${r.carryovers}×` : ''}{r.interestPayments ? ` · interest paid ${r.interestPayments}×` : ''}
               </small>
