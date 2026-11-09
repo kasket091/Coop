@@ -44,6 +44,7 @@ export function LoansTab({ me, year, mine, txns, onPay }: { me: StoredMember; ye
                     {monthInterest(r) > 0 && <li><span>Interest</span><b>{interestLine(next)}</b></li>}
                     <li><span>Paid so far</span><b>{peso(sum(paid.map((t) => t.amount)))}</b></li>
                   </ul>
+                  <button className="btn wide" onClick={onPay}>Pay Now</button>
                 </RequestCard>
               )
             })}

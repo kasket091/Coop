@@ -9,6 +9,8 @@ const loan = { id: 'l', borrowerId: 'me', borrowerName: 'Ana Reyes', type: 'flex
 const html = (mine: LoanRequest[]) => renderToStaticMarkup(<LoansTab me={me} year={2026} mine={mine} txns={[]} onPay={() => {}} />)
 
 it('Pay Now shows only when the member owes something', () => {
-  expect(html([loan])).toContain('Pay Now')
+  // under the total, and on each active loan
+  expect(html([loan]).match(/Pay Now/g)).toHaveLength(2)
+  expect(html([loan, { ...loan, id: 'l2' }]).match(/Pay Now/g)).toHaveLength(3)
   expect(html([])).not.toContain('Pay Now')
 })
