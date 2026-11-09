@@ -31,6 +31,8 @@ export function AdminApp({ year }: { year: number }) {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [txns, setTxns] = useState<Txn[]>([])
   const [tab, setTab] = useState<Tab>('members')
+  // tapping Members again while on it goes back to the member list (a fresh Members screen)
+  const [membersKey, setMembersKey] = useState(0)
   useEffect(() => watchAllMembers(setMembers), [])
   useEffect(() => watchAllRequests(setRequests), [])
   useEffect(() => watchSummary(setSummary), [])
@@ -48,10 +50,10 @@ export function AdminApp({ year }: { year: number }) {
     { id: 'coop', label: 'Coop', Icon: IconCoop },
   ]
   return (
-    <Shell year={year} tabs={tabs} current={tab} onTab={setTab}>
+    <Shell year={year} tabs={tabs} current={tab} onTab={(t) => { if (t === 'members' && tab === 'members') setMembersKey((k) => k + 1); setTab(t) }}>
       <p className="admin-flag">Admin</p>
       {!members ? <Loading />
-        : tab === 'members' ? <Members members={members} requests={requests} txns={txns} year={year} />
+        : tab === 'members' ? <Members key={membersKey} members={members} requests={requests} txns={txns} year={year} />
         : tab === 'loans' ? <LoansAdmin requests={requests} members={members} txns={txns} year={year} />
         : tab === 'requests' ? <Requests requests={requests} year={year} />
         : tab === 'dashboard' ? <Dashboard members={members} txns={txns} year={year} />
