@@ -372,9 +372,10 @@ export const payForSavings = (id: string, year: number) =>
   })
 
 /**
- * Any amount paid: interest first, then carried-over interest, then the amount borrowed. `at` is the day it was paid
- * (a late entry): its month follows that day. `forAt` is a day in the 1-month period whose interest it pays (default:
- * the day paid); that period then has nothing to carry over. The entry is still dated now, so Void keeps its order.
+ * Any amount paid. Paid inside a 1-month period, that month's interest isn't charged: the amount comes off carried-over
+ * interest, then the amount borrowed (₱55,987.20 owed, ₱24,825.44 paid → ₱31,161.76). `at` is the day it was paid (a
+ * late entry): its month follows that day. `forAt` is a day in the period it counts for (default: the day paid); that
+ * period then has nothing to carry over. The entry is still dated now, so Void keeps its order.
  */
 export const loanCustomPayment = async (id: string, year: number, amount: number, at = Date.now(), forAt = at) => {
   const lt = await loanTxns(id)
@@ -388,7 +389,7 @@ export const loanCustomPayment = async (id: string, year: number, amount: number
     // recorded late: an earlier month was already carried over, or a later payment is already in. Rebuild the loan
     // from its capital and every payment in date order, so months paid in time carry nothing
     if (recordedLate(r, lt, at, period.n)) return recalculated(r, lt, [...paymentHistory(r, lt), { at, amount, period: period.n }], at)
-    const p = customPayment(r, amount, interestDueNow(r, lt, at, period))
+    const p = customPayment(r, amount, 0) // that month's interest isn't charged
     if ('error' in p) throw new Error(p.error)
     const toPrincipal = Math.round((amount - p.collected) * 100) / 100
     const what = `Custom payment of ${php(amount)}${dueDay(at) === dueDay(Date.now()) ? '' : ` paid ${dueDay(at)}`}`
@@ -416,8 +417,9 @@ function recalculated(r: LoanRequest, lt: Txn[], payments: (HistoryPayment & { i
         note: `Carryover: ${php(s.due)} interest due ${dueDay(s.period.dueAt)} was not paid; balance now ${php(s.balance)}` })
       continue
     }
-    const what = `${s.pay.at === newAt ? 'Custom payment' : 'Payment'} of ${php(s.pay.amount)} paid ${dueDay(s.pay.at)}`
     const base = { period: s.pay.period, month: monthOf(s.pay.at), paidOn: s.pay.at }
+    if (s.pay.interestOnly) { entries.push({ ...base, kind: 'interest', amount: s.pay.amount, note: `Interest paid ${php(s.pay.amount)} on ${dueDay(s.pay.at)}; balance now ${php(s.balance)}` }); continue }
+    const what = `${s.pay.at === newAt ? 'Custom payment' : 'Payment'} of ${php(s.pay.amount)} paid ${dueDay(s.pay.at)}`
     if (s.collected > 0) entries.push({ ...base, kind: 'interest', amount: s.collected, note: `${what}: interest part; balance now ${php(s.balance)}` })
     if (s.principalPaid > 0) entries.push({ ...base, kind: 'principal', amount: s.principalPaid, note: `${what}: off the balance; balance now ${php(s.balance)}` })
   }

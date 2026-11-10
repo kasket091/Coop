@@ -241,15 +241,16 @@ export const monthInterest = (r: LoanRequest) =>
   r.type === 'regular' || (r.type === 'savings' && !(principalOf(r) > 0)) ? 0 : cents(balanceOf(r) * MONTHLY_LOANS[r.type].rate)
 
 /** A payment in a loan's history: the day paid, the amount, and the period whose interest it pays first. */
-export type HistoryPayment = { at: number; amount: number; period: number }
+export type HistoryPayment = { at: number; amount: number; period: number; interestOnly?: boolean }
 export type ReplayStep =
   | { type: 'carryover'; period: LoanPeriod; due: number; balance: number }
   | { type: 'payment'; pay: HistoryPayment; interestPart: number; collected: number; principalPaid: number; balance: number }
 
 /**
  * A monthly-rate loan rebuilt from its capital and its payments in date order, for payments recorded late: each
- * period's unpaid interest is carried over when it ends, each payment pays its period's interest first (then carried
- * interest, then the amount borrowed), so a month paid in time carries nothing. Not for Savings Loans.
+ * period's unpaid interest is carried over when it ends; a payment made inside a period means that month's interest
+ * isn't charged, and the payment comes off carried interest, then the amount borrowed (Pay interest pays the month's
+ * interest itself). Not for Savings Loans.
  */
 export function replayLoan(r: LoanRequest, payments: HistoryPayment[], now = Date.now()) {
   let cur: LoanRequest = { ...r, balance: r.amount, principal: r.amount, carryovers: 0 }
@@ -260,7 +261,7 @@ export function replayLoan(r: LoanRequest, payments: HistoryPayment[], now = Dat
   let paidOffAt: number | undefined
   const pay = (x: HistoryPayment) => {
     if (paidOffAt) throw new Error(`The loan was already paid off before the ${dueDayPH(x.at)} payment.`)
-    const due = carried.has(x.period) || paid[x.period] !== undefined ? 0 : monthInterest(cur)
+    const due = x.interestOnly && !carried.has(x.period) && paid[x.period] === undefined ? monthInterest(cur) : 0
     const p = customPayment(cur, x.amount, due)
     if ('error' in p) throw new Error(`${dueDayPH(x.at)} payment: ${p.error}`)
     paid[x.period] = cents((paid[x.period] ?? 0) + p.interestPart)
@@ -289,7 +290,10 @@ export function paymentHistory(r: LoanRequest, lt: Txn[]): (HistoryPayment & { i
     for (const t of g) { const k = `${t.paidOn ?? t.createdAt}|${t.period ?? ''}`; byDay.set(k, [...(byDay.get(k) ?? []), t]) }
     return [...byDay.values()].map((ts) => {
       const at = ts[0].paidOn ?? ts[0].createdAt
-      return { at, amount: Math.round(ts.reduce((s, t) => s + t.amount, 0) * 100) / 100, period: ts[0].period ?? loanPeriod(r, at).n, ids: ts.map((t) => t.id) }
+      // shortcut: Pay interest is told apart from a custom payment by its note ("Interest due …", "Interest paid …");
+      // give entries an action field if those notes are ever reworded
+      const interestOnly = ts.every((t) => t.kind === 'interest') && !/^(Custom payment|Payment) of/.test(ts[0].note)
+      return { at, amount: Math.round(ts.reduce((s, t) => s + t.amount, 0) * 100) / 100, period: ts[0].period ?? loanPeriod(r, at).n, ids: ts.map((t) => t.id), ...(interestOnly ? { interestOnly } : {}) }
     })
   })
 }

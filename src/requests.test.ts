@@ -343,20 +343,24 @@ describe("a loan's history replayed: payments recorded late for earlier months",
   const flex = { ...req('approved', 'approved', 'approved'), id: 'fl', type: 'flex', amount: 48000, decidedAt: at(1, 6) } as LoanRequest
   const pays = [{ at: at(4, 17), amount: 20490.96, period: 4 }, { at: at(4, 4), amount: 24825.44, period: 3 }]
 
-  it('carries Mar 6 and Apr 6, takes each payment interest first, carries nothing for May and June, then Jul 6 on what is left', () => {
+  it("carries Mar 6 and Apr 6; a payment inside a month skips that month's interest and comes off the balance; Jul 6 on what is left", () => {
     const h = replayLoan(flex, pays, at(6, 20))
     expect(h.steps.map((s) => s.type === 'carryover' ? ['carryover', s.period.n, s.due, s.balance] : ['payment', s.pay.period, s.collected, s.principalPaid, s.balance])).toEqual([
       ['carryover', 1, 3840, 51840],
       ['carryover', 2, 4147.2, 55987.2],
-      ['payment', 3, 12466.18, 12359.26, 35640.74], // May's ₱4,478.98, then the ₱7,987.20 carried, then the loan
-      ['payment', 4, 2851.26, 17639.7, 18001.04],
-      ['carryover', 5, 1440.08, 19441.12],
+      ['payment', 3, 7987.2, 16838.24, 31161.76], // the ₱7,987.20 carried interest, then the loan: ₱55,987.20 − ₱24,825.44
+      ['payment', 4, 0, 20490.96, 10670.8],
+      ['carryover', 5, 853.66, 11524.46],
     ])
-    expect(h).toMatchObject({ balance: 19441.12, principal: 18001.04, carryovers: 3 })
+    expect(h).toMatchObject({ balance: 11524.46, principal: 10670.8, carryovers: 3 })
   })
   it('a payment covering everything owed closes the loan', () => {
-    const h = replayLoan(flex, [{ at: at(2, 1), amount: 51840, period: 2 }], at(6, 20))
+    const h = replayLoan(flex, [{ at: at(2, 1), amount: 48000, period: 1 }], at(6, 20))
     expect(h).toMatchObject({ balance: 0, paidOffAt: at(2, 1) })
+  })
+  it('Pay interest (interest only) still pays its month\'s interest', () => {
+    const h = replayLoan(flex, [{ at: at(2, 1), amount: 3840, period: 1, interestOnly: true }], at(2, 20))
+    expect(h.steps).toEqual([{ type: 'payment', pay: expect.anything(), interestPart: 3840, collected: 3840, principalPaid: 0, balance: 48000 }])
   })
   it('refuses a payment bigger than what was owed on its day', () => {
     expect(() => replayLoan(flex, [{ at: at(1, 10), amount: 60000, period: 1 }], at(6, 20))).toThrow(/more than/)

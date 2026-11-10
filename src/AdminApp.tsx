@@ -543,7 +543,7 @@ function CustomPay({ r, txns, year, amount, onAmount, busy, onCancel, onRecord }
   const late = n > 0 && dateOk && period && recordedLate(r, txns, at, period.n)
   let replayed: { balance: number } | { error: string } | null = null
   if (late) try { replayed = replayLoan(r, [...paymentHistory(r, txns), { at, amount: n, period: period.n }]) } catch (e) { replayed = { error: (e as Error).message } }
-  const p = n > 0 && dateOk && period && !late ? customPayment(r, n, due) : null
+  const p = n > 0 && dateOk && period && !late ? customPayment(r, n, 0) : null // paid inside the period: its interest isn't charged
   return (
     <div className="custom-pay">
       <label htmlFor={`cp-${r.id}`}>Amount paid (₱)</label>
@@ -556,7 +556,7 @@ function CustomPay({ r, txns, year, amount, onAmount, busy, onCancel, onRecord }
         <label htmlFor={`cpm-${r.id}`}>For the period of</label>
         <input id={`cpm-${r.id}`} type="date" value={forDate} min={first} max={lastDay} onChange={(e) => setPicked(e.target.value)} />
         <p className={period ? 'note' : 'alert'} role="status">{period
-          ? `${dueDay(from!)} – ${dueDay(period.dueAt)}: pays the interest due ${dueDay(period.dueAt)}${due > 0 ? ` (${peso(due)})` : ' (already paid or carried over)'}, then the balance.`
+          ? `${dueDay(from!)} – ${dueDay(period.dueAt)}: paid inside this period, so its interest${due > 0 ? ` (${peso(due)})` : ''} isn't charged. The payment comes off carried-over interest, then the loan.`
           : `Choose a day from ${dueDay(manilaNoon(first))} to ${dueDay(loanDeadline(r))}.`}</p>
       </>}
       {replayed && ('error' in replayed
@@ -565,9 +565,8 @@ function CustomPay({ r, txns, year, amount, onAmount, busy, onCancel, onRecord }
       {p && ('error' in p
         ? <p className="alert" role="status">{p.error}</p>
         : <p className="note" role="status">
-            {peso(p.interestPart)} interest{p.collected > p.interestPart ? ` + ${peso(p.collected - p.interestPart)} carried-over interest` : ''}
+            {p.collected > 0 ? `${peso(p.collected)} carried-over interest + ` : ''}{peso(n - p.collected)} off the loan
             {' · '}{p.paidOff ? 'loan fully paid' : `new balance ${peso(p.balance)}`}
-            {p.interestPart < due ? ` (${peso(due - p.interestPart)} unpaid interest carries over)` : ''}
           </p>)}
       <span className="pay-buttons">
         <button className="btn" disabled={busy || !(late ? replayed && !('error' in replayed) : p && !('error' in p))} onClick={() => onRecord(n, at, forAt)}>Record payment</button>
