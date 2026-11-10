@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { depositAmount, type Member } from './rules'
 import type { Txn } from './ledger'
 import {
-  canAdminApprove, carryover, comakerMode, customPayment, endedPeriods, interestDue, loanDeadline, loanPeriod, missedInterest, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
+  canAdminApprove, carryover, compoundFix, comakerMode, customPayment, endedPeriods, interestDue, loanDeadline, loanPeriod, missedInterest, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
 } from './requests'
 
 const zeros = () => Array(12).fill(0)
@@ -88,13 +88,24 @@ describe('pay interest and carryover (handbook p.8)', () => {
     expect(monthInterest(flex())).toBe(400)
     expect(monthInterest({ ...flex(), type: 'grocery' })).toBe(250)
   })
-  it("a Savings Loan's 10% is always on the missed savings, never on the upfront or carried interest", () => {
+  it("a Savings Loan's 10% is on the full balance: ₱6,600, ₱7,260, ₱7,986, ₱8,784.60, ₱9,663.06", () => {
     let r: LoanRequest = { ...flex(), type: 'savings', amount: 6000, principal: 6000, balance: 6600, upfront: true }
-    expect(monthInterest(r)).toBe(600)
-    r = { ...r, ...carryover(r) }; expect(r.balance).toBe(7200)
-    expect(monthInterest(r)).toBe(600)
-    r = { ...r, ...carryover(r) }; expect(r.balance).toBe(7800)
-    expect(payInterest(r).collected).toBe(600)
+    expect(monthInterest(r)).toBe(660)
+    for (const b of [7260, 7986, 8784.6, 9663.06]) { r = { ...r, ...carryover(r) }; expect(r.balance).toBe(b) }
+  })
+  it("Pay interest on a Savings Loan takes off last month's 10%: ₱7,260 → ₱6,600 → ₱6,000", () => {
+    const r: LoanRequest = { ...flex(), type: 'savings', amount: 6000, principal: 6000, balance: 7260, upfront: true }
+    expect(payInterest(r, 0)).toMatchObject({ collected: 660, update: { balance: 6600 } })
+    expect(payInterest({ ...r, balance: 6600 }, 0)).toMatchObject({ collected: 600, update: { balance: 6000 } })
+    expect(payInterest({ ...r, balance: 9663.06 }, 0)).toMatchObject({ collected: 878.46, update: { balance: 8784.6 } })
+  })
+  it('one-time recalculation of a Savings Loan whose months were added at 10% of the missed savings', () => {
+    const old: LoanRequest = { ...flex(), type: 'savings', amount: 6000, principal: 6000, balance: 9000, carryovers: 4, upfront: true }
+    expect(compoundFix(old)).toEqual({ balance: 9663.06, added: 663.06 })
+    expect(compoundFix({ ...old, balance: 6600, carryovers: 0 })).toEqual({ balance: 6600, added: 0 })
+    expect(compoundFix({ ...old, compound: true })).toBeNull()
+    expect(compoundFix({ ...old, principal: 0, balance: 2400 })).toBeNull() // savings paid back: nothing grows any more
+    expect(compoundFix({ ...old, type: 'flex' })).toBeNull()
   })
   it('carryover adds the interest to the balance, compounding month after month', () => {
     let r = flex()
@@ -282,11 +293,11 @@ describe("each loan's interest is due monthly from its start (Philippine time), 
   it('missed interest: every ended period still unpaid, added oldest first', () => {
     const july = { ...loan(at(2026, 10, 9), { type: 'savings', carriedMonth: 6, upfront: true }), id: 'sl', amount: 6000, principal: 6000, balance: 6600 } as LoanRequest
     const m = missedInterest(july, [], at(2026, 10, 10))
-    expect(m).toMatchObject({ balance: 9000, carryovers: 4 })
-    expect(m?.entries.map((e) => [e.period, e.due, e.balance])).toEqual([[2, 600, 7200], [3, 600, 7800], [4, 600, 8400], [5, 600, 9000]])
+    expect(m).toMatchObject({ balance: 9663.06, carryovers: 4 })
+    expect(m?.entries.map((e) => [e.period, e.due, e.balance])).toEqual([[2, 660, 7260], [3, 726, 7986], [4, 798.6, 8784.6], [5, 878.46, 9663.06]])
     // a ₱600 interest payment doesn't stop the next month's 10% (only paying in full does)
     const paidAug: Txn = { id: 'x', memberId: 'm', memberName: 'M', kind: 'interest', amount: 600, month: 7, cycle: 2026, note: '', createdAt: 1, loanId: 'sl', period: 2 }
-    expect(missedInterest(july, [paidAug], at(2026, 10, 10))?.balance).toBe(9000)
+    expect(missedInterest(july, [paidAug], at(2026, 10, 10))?.balance).toBe(9663.06)
     expect(missedInterest(july, [], at(2026, 6, 20))).toBeNull()
   })
   it('ended periods stop at Dec 15', () => {
@@ -299,8 +310,9 @@ describe("Savings Loan: each 8th adds the month's 10% until paid in full", () =>
   const oct = { ...req('approved', 'approved', 'approved'), id: 'sl', type: 'savings', carriedMonth: 9, upfront: true, amount: 6000, principal: 6000, balance: 6600, decidedAt: at(2026, 9, 8) } as LoanRequest
   const t = (over: Partial<Txn>): Txn => ({ id: 'x', memberId: 'm', memberName: 'M', kind: 'interest', amount: 600, month: 9, cycle: 2026, note: '', createdAt: at(2026, 9, 20), loanId: 'sl', ...over })
 
-  it("October's: Nov 8 adds November's ₱600 (₱7,200)", () => {
-    expect(missedInterest(oct, [], at(2026, 10, 10))).toMatchObject({ balance: 7200, carryovers: 1 })
+  it("October's: Nov 8 adds 10% of the ₱6,600 (₱7,260); Dec 8 adds 10% of that (₱7,986)", () => {
+    expect(missedInterest(oct, [], at(2026, 10, 10))).toMatchObject({ balance: 7260, carryovers: 1 })
+    expect(missedInterest(oct, [], at(2026, 11, 10))).toMatchObject({ balance: 7986, carryovers: 2 })
   })
   it('paying ₱600 interest in October takes it off, but November is still added (only paying in full stops it)', () => {
     const afterPay = { ...oct, balance: 6000 }
@@ -311,7 +323,7 @@ describe("Savings Loan: each 8th adds the month's 10% until paid in full", () =>
   })
   it('nothing is "due" separately, so the unpaid total is just what is owed', () => {
     expect(unpaidLoans([{ ...oct, borrowerId: 'me' }], 'me', 0, { txns: [], now: at(2026, 9, 20) }).total).toBe(6600)
-    expect(unpaidLoans([{ ...oct, borrowerId: 'me', balance: 7200 }], 'me', 0, { txns: [], now: at(2026, 10, 10) }).total).toBe(7200)
+    expect(unpaidLoans([{ ...oct, borrowerId: 'me', balance: 7260 }], 'me', 0, { txns: [], now: at(2026, 10, 10) }).total).toBe(7260)
   })
 
 })

@@ -21,11 +21,11 @@ it('a loan reads as its type reference and running number', () => {
 it('carried-over savings become an approved 10% loan with no co-maker', () => {
   const l = savingsLoan({ borrowerId: 'ma', borrowerName: 'Mark Anthony Ampo', amount: 6000, month: 6, ref: '1SL', now: 100 })
   expect(l).toMatchObject({
-    type: 'savings', status: 'approved', amount: 6000, balance: 6600, principal: 6000, ref: '1SL', upfront: true,
+    type: 'savings', status: 'approved', amount: 6000, balance: 6600, principal: 6000, ref: '1SL', upfront: true, compound: true,
     comakerIds: [], comakers: {}, carriedMonth: 6, decidedAt: 100, createdAt: 100,
   })
-  // the 10% is added at once (₱6,600 owed); every month after is 10% of the ₱6,000 missed savings
-  expect(monthInterest({ ...(l as LoanRequest), id: 'x' })).toBe(600)
+  // the 10% is added at once (₱6,600 owed); every month after is 10% of all that is owed
+  expect(monthInterest({ ...(l as LoanRequest), id: 'x' })).toBe(660)
   expect(settleInterest({ ...(l as LoanRequest), id: 'x' })).toBe(600)
 })
 

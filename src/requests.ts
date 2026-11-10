@@ -36,6 +36,8 @@ export type LoanRequest = {
   savingsSettled?: boolean
   /** a Savings Loan's 10% was added to the balance at once */
   upfront?: boolean
+  /** a Savings Loan whose monthly 10% is on the full balance (made, or recalculated once, after that rule) */
+  compound?: boolean
   /** closed by the admin without recording money (e.g. a test loan) */
   closedNoMoney?: boolean
   /** set when the admin approved without waiting for both co-makers */
@@ -231,10 +233,10 @@ export const balanceOf = (r: LoanRequest) => r.balance ?? r.amount
 
 /**
  * One month's interest on the current balance (monthly-rate loans; regular loans are flat-rate instalments).
- * A Savings Loan is the exception: always 10% of the missed savings still owed, never of the upfront or carried interest.
+ * A Savings Loan too: 10% of all it owes (₱6,600 → ₱7,260 → ₱7,986), until its missed savings are paid back.
  */
 export const monthInterest = (r: LoanRequest) =>
-  r.type === 'regular' ? 0 : cents((r.type === 'savings' ? principalOf(r) : balanceOf(r)) * MONTHLY_LOANS[r.type].rate)
+  r.type === 'regular' || (r.type === 'savings' && !(principalOf(r) > 0)) ? 0 : cents(balanceOf(r) * MONTHLY_LOANS[r.type].rate)
 
 /** Carryover: this month's interest still due (`due`) is added to the balance. */
 export const carryover = (r: LoanRequest, due = monthInterest(r)) => ({ balance: cents(balanceOf(r) + due), carryovers: (r.carryovers ?? 0) + 1 })
@@ -242,14 +244,17 @@ export const carryover = (r: LoanRequest, due = monthInterest(r)) => ({ balance:
 /**
  * Pay interest. With interest due this month (`due`), that is what's paid and the balance stays. With none due
  * (a Savings Loan's first month, whose 10% was added upfront, or a month already carried over), a month's interest
- * sitting in the balance is paid off it: ₱6,600 owed becomes ₱6,000. `collected` 0 means nothing to pay.
+ * sitting in the balance is paid off it: ₱6,600 owed becomes ₱6,000. A Savings Loan pays off its last month's 10%,
+ * so ₱7,260 becomes ₱6,600. `collected` 0 means nothing to pay.
  */
 export function payInterest(r: LoanRequest, due = monthInterest(r)) {
   const interestPayments = (r.interestPayments ?? 0) + 1
   if (due > 0) return { collected: due, update: { balance: balanceOf(r), interestPayments } }
   const carried = Math.max(0, balanceOf(r) - principalOf(r))
   // once nothing more accrues (a Savings Loan whose savings are paid back), all the interest left is paid at once
-  const inBalance = cents(monthInterest(r) > 0 ? Math.min(monthInterest(r), carried) : carried)
+  const rate = r.type === 'savings' ? MONTHLY_LOANS.savings.rate : 0
+  const lastMonth = rate ? balanceOf(r) * rate / (1 + rate) : monthInterest(r)
+  const inBalance = cents(monthInterest(r) > 0 ? Math.min(lastMonth, carried) : carried)
   return { collected: inBalance, update: { balance: cents(balanceOf(r) - inBalance), interestPayments } }
 }
 
@@ -333,8 +338,8 @@ export function savingsLoan(p: { borrowerId: string; borrowerName: string; amoun
     borrowerId: p.borrowerId, borrowerName: p.borrowerName, type: 'savings', amount: p.amount, months: 1,
     quote: '10% a month until paid', comakers: {}, comakerIds: [], status: 'approved',
     createdAt: p.now, decidedAt: p.now, ref: p.ref, carriedMonth: p.month,
-    // the 10% is added at once: ₱6,000 carried over is ₱6,600 owed; each month after is 10% of the ₱6,000
-    balance: cents(p.amount * 1.1), principal: p.amount, upfront: true,
+    // the 10% is added at once: ₱6,000 carried over is ₱6,600 owed; each month after adds 10% of all that is owed
+    balance: cents(p.amount * 1.1), principal: p.amount, upfront: true, compound: true,
   }
 }
 
@@ -343,6 +348,18 @@ export function upfrontFix(r: LoanRequest) {
   if (r.type !== 'savings' || r.upfront) return null
   const added = cents(r.amount * 0.1)
   return { balance: cents(balanceOf(r) + added), upfront: true as const, added }
+}
+
+/**
+ * A Savings Loan whose months were added at 10% of the missed savings: the one-time recalculation at 10% of the full
+ * balance (₱9,000 after 4 months → ₱9,663.06), or null. Payments are taken as made before those months.
+ */
+export function compoundFix(r: LoanRequest) {
+  if (r.type !== 'savings' || r.compound || !(principalOf(r) > 0)) return null
+  const months = r.carryovers ?? 0
+  let balance = cents(balanceOf(r) - months * cents(principalOf(r) * 0.1))
+  for (let i = 0; i < months; i++) balance = cents(balance * 1.1)
+  return { balance, added: cents(balance - balanceOf(r)) }
 }
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']

@@ -295,7 +295,7 @@ function CarrySavings({ m, year, onDone }: { m: StoredMember; year: number; onDo
         <div className="field"><label htmlFor="sa">Amount (₱)</label>
           <input id="sa" inputMode="decimal" value={amount === '' ? String(missing) : amount} onChange={(e) => setAmount(e.target.value)} /></div>
       </div>
-      <p className="note" style={{ marginTop: 0 }}>A Savings Loan of {peso(n)} + 10% at once = <b>{peso(Math.round(n * 110) / 100)} owed</b>, then 10% a month. {MONTHS[month]} shows red on the Dashboard but does not count as saved.</p>
+      <p className="note" style={{ marginTop: 0 }}>A Savings Loan of {peso(n)} + 10% at once = <b>{peso(Math.round(n * 110) / 100)} owed</b>, then 10% of all that is owed each month. {MONTHS[month]} shows red on the Dashboard but does not count as saved.</p>
       {error && <p className="alert" role="alert">{error}</p>}
       <span className="pay-buttons">
         <button className="btn" disabled={busy || !(n > 0)}>{busy ? 'Saving…' : 'Carry over as loan'}</button>

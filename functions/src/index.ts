@@ -7,7 +7,7 @@ import { setGlobalOptions } from 'firebase-functions/v2'
 import { onDocumentWritten } from 'firebase-functions/v2/firestore'
 import { onSchedule } from 'firebase-functions/v2/scheduler'
 import type { Txn } from '../../src/ledger'
-import { balanceOf, loanSnapshot, missedInterest, type LoanRequest } from '../../src/requests'
+import { balanceOf, compoundFix, loanSnapshot, missedInterest, refLabel, type LoanRequest } from '../../src/requests'
 import { messagesFor, type Message, type Req } from './messages'
 
 initializeApp()
@@ -64,8 +64,25 @@ export const dailyInterestCarryover = onSchedule({ schedule: '5 0 * * *', timeZo
   // a terminated account is closed: its loans are settled by the admin, never changed automatically
   const terminated = new Set((await db.collection('members').get()).docs.filter((m) => m.data().terminated).map((m) => m.id))
   for (const d of loans.docs) {
-    const r = { ...(d.data() as LoanRequest), id: d.id }
+    let r = { ...(d.data() as LoanRequest), id: d.id }
     if (terminated.has(r.borrowerId)) continue
+    // once per Savings Loan from before each month's 10% was on the full balance: its past months recalculated
+    if (compoundFix(r)) {
+      const fixed = await db.runTransaction(async (tx) => {
+        const live = { ...((await tx.get(d.ref)).data() as LoanRequest), id: d.id }
+        const fix = compoundFix(live)
+        if (!fix || live.status !== 'approved') return null
+        tx.update(d.ref, { balance: fix.balance, compound: true })
+        if (fix.added) tx.set(db.collection('transactions').doc(), {
+          memberId: live.borrowerId, memberName: live.borrowerName, kind: 'note', amount: 0, loanId: d.id, loanBefore: loanSnapshot(live),
+          month: phMonth(now), cycle: phYear(now), createdAt: now,
+          note: `Loan ${refLabel(live)}: each month's 10% now on the full balance (${php(fix.added)} more), now ${php(fix.balance)} owed`,
+        })
+        return { ...live, balance: fix.balance, compound: true }
+      })
+      if (!fixed) continue
+      r = fixed
+    }
     const txns = (await db.collection('transactions').where('loanId', '==', d.id).get()).docs.map((t) => ({ ...(t.data() as Txn), id: t.id }))
     const missed = missedInterest(r, txns, now)
     if (!missed) continue
