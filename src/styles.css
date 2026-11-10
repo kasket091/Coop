@@ -356,3 +356,7 @@ a.btn.wide { display: flex; text-align: center; }
 .seg-count { display: block; font-size: 17px; line-height: 1.1; }
 /* unpaid loan entries: the buttons sit under the loan, each the full width */
 .unpaid-list .loan-actions { flex-basis: 100%; justify-items: stretch; }
+/* admin member page: notes icon above Unpaid loans, and its pop-up text box */
+.note-btn { display: grid; place-items: center; width: 44px; height: 44px; margin: 8px 0 0 auto; padding: 0; border: 1.5px solid var(--line); border-radius: var(--radius); background: transparent; color: var(--ink); cursor: pointer; }
+.note-btn svg { width: 22px; height: 22px; }
+.ask textarea { display: block; width: 100%; padding: 10px 12px; margin-bottom: 14px; border: 1.5px solid var(--line); border-radius: var(--radius); font: inherit; resize: vertical; }

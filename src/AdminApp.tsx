@@ -3,13 +3,13 @@ import { RECRUITS, startingPassword } from './accounts'
 import { backupSummary, parseBackup, type Backup } from './backup'
 import { Dashboard } from './Dashboard'
 import { dueDay, interestLine, MONTHS, peso } from './format'
-import { IconChart, IconCoop, IconLoans, IconPay, IconSavings } from './icons'
+import { IconChart, IconCoop, IconLoans, IconNote, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
 import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext, loanMonth, loanPeriod, missedInterest, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { advancePayments, carryoverMonths, isAdvance } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
-import { askText, askYes, tell } from './dialog'
+import { askNote, askText, askYes, tell } from './dialog'
 import { PushSetting } from './push'
 import { HandbookAdmin } from './handbook'
 import { coopSummary } from './rules'
@@ -18,7 +18,7 @@ import { Loading, Shell, type TabDef } from './Shell'
 import {
   addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, bookFeeTopUps, payForSavings, needsSavingsSettle, settlePaidSavingsLoans, setLoanDate, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, recomputeSummary, renameMember, resetLogin,
-  signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
+  getNote, saveNote, signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
   type StoredMember, type Summary, type Txn, rebuildAllLedgers, setRecruiter,
 } from './store'
 
@@ -204,6 +204,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
             ? <p className="alert" role="status">Terminated {new Date(m.terminated.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}. <button className="link inline" onClick={restore}>Restore account</button></p>
             : flag && <div className="alert" role="status"><b>Should be terminated:</b> {flagReason} <span className="pay-buttons" style={{ marginTop: 8 }}><button className="btn danger" onClick={terminate}>Terminate</button></span></div>}
           {!m.founder && m.heads > 0 && <RecruiterLine m={m} recruiter={recruiter} board={members.filter((x) => x.founder && x.heads > 0 && x.uid !== m.uid)} year={year} onOpen={onOpen} />}
+          <NoteButton m={m} />
           <UnpaidLoans m={m} requests={requests} txns={txns} year={year} />
         </>} />
 
@@ -368,6 +369,17 @@ function AddTxn({ m, year, unpaid, onDone }: { m: StoredMember; year: number; un
 }
 
 /** Total unpaid loans: app loans approved but not yet paid, plus this month's interest still due. */
+/** Opens the admin's private note on this member in a text box; saving it empty removes it. */
+function NoteButton({ m }: { m: StoredMember }) {
+  const open = async () => {
+    try {
+      const text = await askNote(`Notes on ${m.name}`, await getNote(m.uid))
+      if (text !== null) await saveNote(m.uid, m.name, text)
+    } catch (err) { await tell((err as Error).message || "Couldn't save. Check your connection.") }
+  }
+  return <button className="note-btn" onClick={open} aria-label={`Notes on ${m.name}`} title="Create notes"><IconNote /></button>
+}
+
 function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: LoanRequest[]; txns: Txn[]; year: number }) {
   const now = Date.now()
   const u = unpaidLoans(requests, m.uid, m.sheetLoanBalance ?? 0, { txns, now })

@@ -8,7 +8,7 @@ const sample = makeBackup({
 }, 1000)
 
 it('covers every collection the app uses', () => {
-  expect(BACKUP_COLLECTIONS).toEqual(['members', 'founders', 'logins', 'loanRequests', 'transactions', 'settings', 'coop', 'counters'])
+  expect(BACKUP_COLLECTIONS).toEqual(['members', 'founders', 'logins', 'loanRequests', 'transactions', 'settings', 'coop', 'counters', 'notes'])
 })
 
 it('a backup round-trips through a file unchanged', () => {
@@ -24,9 +24,4 @@ it('refuses a file that is not a Hilas backup', () => {
   expect(parseBackup('not json')).toMatchObject({ error: expect.stringMatching(/not a backup/i) })
   expect(parseBackup(JSON.stringify({ hello: 1 }))).toMatchObject({ error: expect.stringMatching(/not a Hilas Coop backup/i) })
   expect(parseBackup(JSON.stringify({ ...sample, collections: { members: [{ nope: 1 }] } }))).toMatchObject({ error: expect.stringMatching(/damaged/i) })
-})
-
-it('a backup from when the Notes tab existed still restores, without the notes', () => {
-  const old = { ...sample, collections: { ...sample.collections, notes: [{ id: 'u1', data: { text: 'x' } }] } }
-  expect(parseBackup(JSON.stringify(old))).toEqual(sample)
 })
