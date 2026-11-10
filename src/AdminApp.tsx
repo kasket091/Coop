@@ -437,9 +437,9 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
             </span>
             {dating === r.id && <EditLoanDate r={r} txns={txns} year={year} busy={busy === r.id}
               onCancel={() => setDating(null)} onSave={(at) => run(r.id, () => setLoanDate(r.id, year, at))} />}
-            {paying === r.id && <CustomPay r={r} due={due} amount={payAmount} onAmount={setPayAmount} busy={busy === r.id}
+            {paying === r.id && <CustomPay r={r} txns={txns} year={year} amount={payAmount} onAmount={setPayAmount} busy={busy === r.id}
               onCancel={() => setPaying(null)}
-              onRecord={(n) => run(r.id, () => loanCustomPayment(r.id, year, n))} />}
+              onRecord={(n, at) => run(r.id, () => loanCustomPayment(r.id, year, n, at))} />}
           </li>
         ) })}
       </ul>
@@ -469,14 +469,19 @@ function AdvanceList({ list, total, search }: { list: Txn[]; total: number; sear
 }
 
 /** Inline form: correct a loan's approval date; shows the overdue interest that will be added before saving. */
+const ymd = (ms: number) => new Date(ms + 8 * 3600_000).toISOString().slice(0, 10) // Manila date, YYYY-MM-DD
+/** A YYYY-MM-DD date as noon in Manila (0 when empty); today is now, so today's entries keep their time. */
+const manilaNoon = (value: string) => {
+  const [y, mo, d] = value.split('-').map(Number)
+  return !y ? 0 : value === ymd(Date.now()) ? Date.now() : Date.UTC(y, mo - 1, d, 4)
+}
+
 function EditLoanDate({ r, txns, year, busy, onCancel, onSave }: {
   r: LoanRequest; txns: Txn[]; year: number; busy: boolean; onCancel: () => void; onSave: (at: number) => void
 }) {
-  const ymd = (ms: number) => new Date(ms + 8 * 3600_000).toISOString().slice(0, 10) // Manila date, YYYY-MM-DD
   const [value, setValue] = useState(ymd(r.decidedAt ?? r.createdAt))
-  const [y, mo, d] = value.split('-').map(Number)
-  const at = y ? Date.UTC(y, mo - 1, d, 4) : 0 // noon in Manila
-  const valid = !!y && y === year && at <= Date.now()
+  const at = manilaNoon(value)
+  const valid = !!at && new Date(at + 8 * 3600_000).getUTCFullYear() === year && at <= Date.now()
   const missed = valid ? missedInterest({ ...r, decidedAt: at }, txns) : null
   return (
     <div className="custom-pay">
@@ -495,16 +500,24 @@ function EditLoanDate({ r, txns, year, busy, onCancel, onSave }: {
   )
 }
 
-/** Inline form: how a custom amount splits into interest and balance, before recording it. */
-function CustomPay({ r, due, amount, onAmount, busy, onCancel, onRecord }: {
-  r: LoanRequest; due: number; amount: string; onAmount: (s: string) => void; busy: boolean; onCancel: () => void; onRecord: (n: number) => void
+/** Inline form: the amount and the day it was paid (earlier for a late entry); how it splits, before recording it. */
+function CustomPay({ r, txns, year, amount, onAmount, busy, onCancel, onRecord }: {
+  r: LoanRequest; txns: Txn[]; year: number; amount: string; onAmount: (s: string) => void; busy: boolean; onCancel: () => void; onRecord: (n: number, at: number) => void
 }) {
+  const [date, setDate] = useState(ymd(Date.now()))
+  const at = manilaNoon(date)
+  const first = ymd(r.decidedAt ?? r.createdAt) > `${year}-01-01` ? ymd(r.decidedAt ?? r.createdAt) : `${year}-01-01`
+  const dateOk = !!at && date >= first && date <= ymd(Date.now())
+  const due = dateOk ? interestDueNow(r, txns, at) : 0
   const n = Number(amount.replace(/[^\d.]/g, '')) || 0
-  const p = n > 0 ? customPayment(r, n, due) : null
+  const p = n > 0 && dateOk ? customPayment(r, n, due) : null
   return (
     <div className="custom-pay">
-      <label htmlFor={`cp-${r.id}`}>Amount paid this month (₱)</label>
+      <label htmlFor={`cp-${r.id}`}>Amount paid (₱)</label>
       <input id={`cp-${r.id}`} inputMode="decimal" value={amount} onChange={(e) => onAmount(e.target.value)} placeholder="e.g. 500" autoFocus />
+      <label htmlFor={`cpd-${r.id}`}>Date paid</label>
+      <input id={`cpd-${r.id}`} type="date" value={date} min={first} max={ymd(Date.now())} onChange={(e) => setDate(e.target.value)} />
+      {!dateOk && <p className="alert" role="status">Choose a day from {dueDay(manilaNoon(first))} to today.</p>}
       {p && ('error' in p
         ? <p className="alert" role="status">{p.error}</p>
         : <p className="note" role="status">
@@ -513,7 +526,7 @@ function CustomPay({ r, due, amount, onAmount, busy, onCancel, onRecord }: {
             {p.interestPart < due ? ` (${peso(due - p.interestPart)} unpaid interest carries over)` : ''}
           </p>)}
       <span className="pay-buttons">
-        <button className="btn" disabled={busy || !p || 'error' in p} onClick={() => onRecord(n)}>Record payment</button>
+        <button className="btn" disabled={busy || !p || 'error' in p} onClick={() => onRecord(n, at)}>Record payment</button>
         <button className="copy" onClick={onCancel}>Cancel</button>
       </span>
     </div>

@@ -372,19 +372,28 @@ export const payForSavings = (id: string, year: number) =>
     }
   })
 
-/** Any amount paid this month: interest first, then carried-over interest, then the amount borrowed. */
-export const loanCustomPayment = async (id: string, year: number, amount: number) => {
+/**
+ * Any amount paid: interest first, then carried-over interest, then the amount borrowed. `at` is the day it was paid
+ * (a late entry): its period and month follow that day. The entry is still dated now, so Void keeps its order.
+ */
+export const loanCustomPayment = async (id: string, year: number, amount: number, at = Date.now()) => {
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
-    const period = loanPeriod(r)
-    const p = customPayment(r, amount, interestDueNow(r, lt))
+    const paidDay = new Date(at + 8 * 3600_000) // Manila
+    if (at > Date.now()) throw new Error("The date paid can't be in the future.")
+    if (paidDay.getUTCFullYear() !== year) throw new Error(`Choose a date in ${year}.`)
+    if (at < (r.decidedAt ?? r.createdAt) - 86_400_000) throw new Error(`This loan started ${dueDay(r.decidedAt ?? r.createdAt)}; choose that day or later.`)
+    const period = loanPeriod(r, at)
+    const p = customPayment(r, amount, interestDueNow(r, lt, at))
     if ('error' in p) throw new Error(p.error)
     const toPrincipal = Math.round((amount - p.collected) * 100) / 100
+    const what = `Custom payment of ${php(amount)}${dueDay(at) === dueDay(Date.now()) ? '' : ` paid ${dueDay(at)}`}`
+    const m = paidDay.getUTCMonth()
     return {
-      update: { balance: p.balance, principal: p.principal, customPayments: (r.customPayments ?? 0) + 1, ...(p.paidOff ? { status: 'paid', paidAt: Date.now() } : {}) },
+      update: { balance: p.balance, principal: p.principal, customPayments: (r.customPayments ?? 0) + 1, ...(p.paidOff ? { status: 'paid', paidAt: at } : {}) },
       entries: [
-        ...(p.collected > 0 ? [{ kind: 'interest' as const, amount: p.collected, period: period.n, note: `Custom payment of ${php(amount)}: interest part` }] : []),
-        ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, period: period.n, note: `Custom payment of ${php(amount)}: off the balance` }] : []),
+        ...(p.collected > 0 ? [{ kind: 'interest' as const, amount: p.collected, period: period.n, month: m, note: `${what}: interest part` }] : []),
+        ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, period: period.n, month: m, note: `${what}: off the balance` }] : []),
       ],
     }
   })
