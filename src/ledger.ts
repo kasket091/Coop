@@ -45,11 +45,17 @@ export const quarterTotals = (months: number[]) => [0, 3, 6, 9].map((i) => cents
 export const newestLiveForLoan = (txns: Txn[], loanId: string) =>
   txns.filter((t) => t.loanId === loanId && !t.voidedAt).sort((a, b) => b.createdAt - a.createdAt)[0]
 
-/** Months (0–11) per member that carried interest over this cycle; voided marks don't count. */
-export function carryoverMonths(txns: Txn[], cycle: number): Map<string, Set<number>> {
+/**
+ * Months (0–11) per member that carried something over this cycle; voided marks don't count. 'savings' (the default):
+ * a missed month's savings carried over into a Savings Loan (the savings grid, the termination warning). 'interest':
+ * a loan's unpaid interest added to its balance (the interest grid).
+ */
+export function carryoverMonths(txns: Txn[], cycle: number, kind: 'savings' | 'interest' = 'savings'): Map<string, Set<number>> {
   const out = new Map<string, Set<number>>()
   for (const t of txns) {
     if (!t.carryover || t.voidedAt || t.cycle !== cycle) continue
+    // a loan's interest carryover is made on an approved loan; a savings carry-over creates its loan (or has none)
+    if ((t.loanBefore?.status === 'approved') !== (kind === 'interest')) continue
     if (!out.has(t.memberId)) out.set(t.memberId, new Set())
     out.get(t.memberId)!.add(t.month)
   }

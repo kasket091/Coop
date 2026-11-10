@@ -47,6 +47,17 @@ it('carryover months: live carryover marks per member, this cycle only', () => {
   expect([...(marks.get('ev') ?? [])]).toEqual([8])
 })
 
+it("savings carry-overs and loan interest carryovers are told apart: interest doesn't turn the savings grid red", () => {
+  const snap = (status: string) => ({ status }) as Txn['loanBefore']
+  const txns = [
+    t({ memberId: 'ma', kind: 'note', carryover: true, month: 9, loanId: 'S1', loanBefore: snap('withdrawn') }), // Oct savings → SL
+    t({ memberId: 'ma', kind: 'note', carryover: true, month: 2, loanId: 'F1', loanBefore: snap('approved') }), // Mar interest
+    t({ memberId: 'ma', kind: 'note', carryover: true, month: 3, loanId: 'F1', loanBefore: snap('approved') }), // Apr interest
+  ]
+  expect([...(carryoverMonths(txns, 2026).get('ma') ?? [])]).toEqual([9])
+  expect([...(carryoverMonths(txns, 2026, 'interest').get('ma') ?? [])].sort()).toEqual([2, 3])
+})
+
 it('a month range for carryover marks', () => {
   expect(monthRange(6, 10)).toEqual([6, 7, 8, 9, 10])
   expect(monthRange(10, 6)).toEqual([6, 7, 8, 9, 10])
