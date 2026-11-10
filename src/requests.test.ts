@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { depositAmount, type Member } from './rules'
 import type { Txn } from './ledger'
 import {
-  canAdminApprove, carryover, compoundFix, replayLoan, comakerMode, customPayment, endedPeriods, interestDue, loanDeadline, loanPeriod, missedInterest, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
+  canAdminApprove, carryover, compoundFix, replayLoan, waivedDue, comakerMode, customPayment, endedPeriods, interestDue, loanDeadline, loanPeriod, missedInterest, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
 } from './requests'
 
 const zeros = () => Array(12).fill(0)
@@ -337,6 +337,12 @@ describe("Savings Loan: each 8th adds the month's 10% until paid in full", () =>
 
 })
 
+it('waivedDue: the interest is skipped only when the payment is bigger than it', () => {
+  expect(waivedDue(24825.44, 4478.98)).toBe(0)
+  expect(waivedDue(4478.98, 4478.98)).toBe(4478.98)
+  expect(waivedDue(1000, 4478.98)).toBe(4478.98)
+})
+
 describe("a loan's history replayed: payments recorded late for earlier months", () => {
   const at = (m: number, d: number, h = 12) => Date.UTC(2026, m, d, h - 8) // h o'clock in Manila
   // Mark Anthony: Flex ₱48,000 on Feb 6, paid ₱24,825.44 on May 4 (April 6 – May 6) and ₱20,490.96 on May 17
@@ -357,6 +363,11 @@ describe("a loan's history replayed: payments recorded late for earlier months",
   it('a payment covering everything owed closes the loan', () => {
     const h = replayLoan(flex, [{ at: at(2, 1), amount: 48000, period: 1 }], at(6, 20))
     expect(h).toMatchObject({ balance: 0, paidOffAt: at(2, 1) })
+  })
+  it("a payment no bigger than its month's interest pays the interest first; the shortfall goes into the balance", () => {
+    const h = replayLoan(flex, [{ at: at(4, 4), amount: 1000, period: 3 }], at(4, 20))
+    expect(h.steps[2]).toMatchObject({ type: 'payment', interestPart: 1000, principalPaid: 0, balance: 59466.18 }) // ₱55,987.20 + ₱3,478.98 short
+    expect(h.steps).toHaveLength(3) // and May isn't carried over again
   })
   it('Pay interest (interest only) still pays its month\'s interest', () => {
     const h = replayLoan(flex, [{ at: at(2, 1), amount: 3840, period: 1, interestOnly: true }], at(2, 20))

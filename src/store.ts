@@ -12,7 +12,7 @@ import {
 import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { auth, db, firebaseConfig } from './firebase'
 import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
-import { balanceOf, customPayment, interestDueNow, loanDeadline, loanPeriod, paymentHistory, recordedLate, replayLoan, type HistoryPayment, loanSnapshot, missedInterest, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
+import { balanceOf, customPayment, interestDueNow, loanDeadline, loanPeriod, paymentHistory, recordedLate, waivedDue, replayLoan, type HistoryPayment, loanSnapshot, missedInterest, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { feeTopUps, payFromSavings } from './termination'
@@ -372,7 +372,8 @@ export const payForSavings = (id: string, year: number) =>
   })
 
 /**
- * Any amount paid. Paid inside a 1-month period, that month's interest isn't charged: the amount comes off carried-over
+ * Any amount paid. Paid inside a 1-month period and bigger than its interest, that month's interest isn't charged (else
+ * it is paid first, any shortfall carried): the amount comes off carried-over
  * interest, then the amount borrowed (₱55,987.20 owed, ₱24,825.44 paid → ₱31,161.76). `at` is the day it was paid (a
  * late entry): its month follows that day. `forAt` is a day in the period it counts for (default: the day paid); that
  * period then has nothing to carry over. The entry is still dated now, so Void keeps its order.
@@ -389,7 +390,7 @@ export const loanCustomPayment = async (id: string, year: number, amount: number
     // recorded late: an earlier month was already carried over, or a later payment is already in. Rebuild the loan
     // from its capital and every payment in date order, so months paid in time carry nothing
     if (recordedLate(r, lt, at, period.n)) return recalculated(r, lt, [...paymentHistory(r, lt), { at, amount, period: period.n }], at)
-    const p = customPayment(r, amount, 0) // that month's interest isn't charged
+    const p = customPayment(r, amount, waivedDue(amount, interestDueNow(r, lt, at, period)))
     if ('error' in p) throw new Error(p.error)
     const toPrincipal = Math.round((amount - p.collected) * 100) / 100
     const what = `Custom payment of ${php(amount)}${dueDay(at) === dueDay(Date.now()) ? '' : ` paid ${dueDay(at)}`}`

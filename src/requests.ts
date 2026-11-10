@@ -240,6 +240,12 @@ export const balanceOf = (r: LoanRequest) => r.balance ?? r.amount
 export const monthInterest = (r: LoanRequest) =>
   r.type === 'regular' || (r.type === 'savings' && !(principalOf(r) > 0)) ? 0 : cents(balanceOf(r) * MONTHLY_LOANS[r.type].rate)
 
+/**
+ * A custom payment's interest still due for its month: none when it is bigger than that month's interest (the
+ * interest isn't charged; it all comes off the balance), else the interest, paid first with any shortfall carried.
+ */
+export const waivedDue = (amount: number, due: number) => (amount > due ? 0 : due)
+
 /** A payment in a loan's history: the day paid, the amount, and the period whose interest it pays first. */
 export type HistoryPayment = { at: number; amount: number; period: number; interestOnly?: boolean }
 export type ReplayStep =
@@ -248,9 +254,9 @@ export type ReplayStep =
 
 /**
  * A monthly-rate loan rebuilt from its capital and its payments in date order, for payments recorded late: each
- * period's unpaid interest is carried over when it ends; a payment made inside a period means that month's interest
- * isn't charged, and the payment comes off carried interest, then the amount borrowed (Pay interest pays the month's
- * interest itself). Not for Savings Loans.
+ * period's unpaid interest is carried over when it ends; a payment made inside a period and bigger than that month's
+ * interest means the interest isn't charged (waivedDue), and the payment comes off carried interest, then the amount
+ * borrowed (Pay interest pays the month's interest itself). Not for Savings Loans.
  */
 export function replayLoan(r: LoanRequest, payments: HistoryPayment[], now = Date.now()) {
   let cur: LoanRequest = { ...r, balance: r.amount, principal: r.amount, carryovers: 0 }
@@ -261,7 +267,8 @@ export function replayLoan(r: LoanRequest, payments: HistoryPayment[], now = Dat
   let paidOffAt: number | undefined
   const pay = (x: HistoryPayment) => {
     if (paidOffAt) throw new Error(`The loan was already paid off before the ${dueDayPH(x.at)} payment.`)
-    const due = x.interestOnly && !carried.has(x.period) && paid[x.period] === undefined ? monthInterest(cur) : 0
+    const monthDue = !carried.has(x.period) && paid[x.period] === undefined ? monthInterest(cur) : 0
+    const due = x.interestOnly ? monthDue : waivedDue(x.amount, monthDue)
     const p = customPayment(cur, x.amount, due)
     if ('error' in p) throw new Error(`${dueDayPH(x.at)} payment: ${p.error}`)
     paid[x.period] = cents((paid[x.period] ?? 0) + p.interestPart)

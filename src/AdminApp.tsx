@@ -6,7 +6,7 @@ import { Dashboard } from './Dashboard'
 import { dueDay, interestLine, MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconClock, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
-import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext, loanMonth, loanPeriod, loanDeadline, missedInterest, paymentHistory, periodAt, recordedLate, replayLoan, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
+import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext, loanMonth, loanPeriod, loanDeadline, missedInterest, paymentHistory, periodAt, recordedLate, replayLoan, waivedDue, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { advancePayments, carryoverMonths, isAdvance } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
@@ -543,7 +543,7 @@ function CustomPay({ r, txns, year, amount, onAmount, busy, onCancel, onRecord }
   const late = n > 0 && dateOk && period && recordedLate(r, txns, at, period.n)
   let replayed: { balance: number } | { error: string } | null = null
   if (late) try { replayed = replayLoan(r, [...paymentHistory(r, txns), { at, amount: n, period: period.n }]) } catch (e) { replayed = { error: (e as Error).message } }
-  const p = n > 0 && dateOk && period && !late ? customPayment(r, n, 0) : null // paid inside the period: its interest isn't charged
+  const p = n > 0 && dateOk && period && !late ? customPayment(r, n, waivedDue(n, due)) : null
   return (
     <div className="custom-pay">
       <label htmlFor={`cp-${r.id}`}>Amount paid (₱)</label>
@@ -556,7 +556,7 @@ function CustomPay({ r, txns, year, amount, onAmount, busy, onCancel, onRecord }
         <label htmlFor={`cpm-${r.id}`}>For the period of</label>
         <input id={`cpm-${r.id}`} type="date" value={forDate} min={first} max={lastDay} onChange={(e) => setPicked(e.target.value)} />
         <p className={period ? 'note' : 'alert'} role="status">{period
-          ? `${dueDay(from!)} – ${dueDay(period.dueAt)}: paid inside this period, so its interest${due > 0 ? ` (${peso(due)})` : ''} isn't charged. The payment comes off carried-over interest, then the loan.`
+          ? `${dueDay(from!)} – ${dueDay(period.dueAt)}: ${due > 0 ? `paying more than its ${peso(due)} interest means the interest isn't charged and it all comes off the balance; ${peso(due)} or less pays the interest first.` : 'its interest is already paid or carried over; the payment comes off the balance.'}`
           : `Choose a day from ${dueDay(manilaNoon(first))} to ${dueDay(loanDeadline(r))}.`}</p>
       </>}
       {replayed && ('error' in replayed
@@ -565,8 +565,9 @@ function CustomPay({ r, txns, year, amount, onAmount, busy, onCancel, onRecord }
       {p && ('error' in p
         ? <p className="alert" role="status">{p.error}</p>
         : <p className="note" role="status">
-            {p.collected > 0 ? `${peso(p.collected)} carried-over interest + ` : ''}{peso(n - p.collected)} off the loan
+            {p.interestPart > 0 && `${peso(p.interestPart)} this month's interest + `}{p.collected > p.interestPart && `${peso(p.collected - p.interestPart)} carried-over interest + `}{peso(Math.max(0, n - p.collected))} off the loan
             {' · '}{p.paidOff ? 'loan fully paid' : `new balance ${peso(p.balance)}`}
+            {p.interestPart < waivedDue(n, due) && ` (${peso(waivedDue(n, due) - p.interestPart)} unpaid interest added to the balance)`}
           </p>)}
       <span className="pay-buttons">
         <button className="btn" disabled={busy || !(late ? replayed && !('error' in replayed) : p && !('error' in p))} onClick={() => onRecord(n, at, forAt)}>Record payment</button>
