@@ -9,7 +9,7 @@ import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext
 import { advancePayments, carryoverMonths, isAdvance } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
-import { askNote, askText, askYes, tell } from './dialog'
+import { askText, askYes, tell } from './dialog'
 import { PushSetting } from './push'
 import { HandbookAdmin } from './handbook'
 import { coopSummary } from './rules'
@@ -18,8 +18,8 @@ import { Loading, Shell, type TabDef } from './Shell'
 import {
   addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, bookFeeTopUps, payForSavings, needsSavingsSettle, settlePaidSavingsLoans, setLoanDate, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, recomputeSummary, renameMember, resetLogin,
-  saveNote, signOutUser, startCycle, voidTransaction, watchAllMembers, watchNotes, watchAllRequests, watchAllTransactions, watchSummary,
-  type Note, type StoredMember, type Summary, type Txn, rebuildAllLedgers, setRecruiter,
+  signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
+  type StoredMember, type Summary, type Txn, rebuildAllLedgers, setRecruiter,
 } from './store'
 
 type Tab = 'members' | 'loans' | 'requests' | 'dashboard' | 'coop'
@@ -54,7 +54,7 @@ export function AdminApp({ year }: { year: number }) {
       <p className="admin-flag">Admin</p>
       {!members ? <Loading />
         : tab === 'members' ? <Members key={membersKey} members={members} requests={requests} txns={txns} year={year} />
-        : tab === 'loans' ? <LoansAdmin requests={requests} members={members} txns={txns} year={year} />
+        : tab === 'loans' ? <LoansAdmin requests={requests} txns={txns} year={year} />
         : tab === 'requests' ? <Requests requests={requests} year={year} />
         : tab === 'dashboard' ? <Dashboard members={members} txns={txns} year={year} />
         : <CoopAdmin members={members} summary={summary} year={year} />}
@@ -436,52 +436,6 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
   )
 }
 
-/** Notes tab: the admin's private notes on members. Create Notes finds a member without notes by name; Add/Edit notes opens a text box. */
-function NotesPanel({ members, notes, search }: { members: StoredMember[]; notes: Record<string, Note>; search: string }) {
-  const [adding, setAdding] = useState(false)
-  const [who, setWho] = useState('')
-  const has = (name: string, q: string) => name.toLowerCase().includes(q.toLowerCase())
-  const edit = async (uid: string, name: string) => {
-    const text = await askNote(`Notes on ${name}`, notes[uid]?.text ?? '')
-    if (text === null) return
-    try { await saveNote(uid, name, text); setAdding(false); setWho('') } catch (err) { await tell((err as Error).message || "Couldn't save. Check your connection.") }
-  }
-  // members who already have notes are edited from the list below, so only the others are offered here
-  const found = who.trim() ? members.filter((m) => !notes[m.uid] && has(m.name, who.trim())) : []
-  const saved = Object.entries(notes).filter(([, n]) => has(n.name, search)).sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
-  const when = (ms: number) => new Date(ms).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' })
-  return (
-    <div className="section">
-      <p className="note">Only you (the admin) can see these notes.</p>
-      {!adding ? <button className="btn wide" onClick={() => setAdding(true)}>Create Notes</button> : (
-        <div className="panel notes-pick">
-          <div className="field"><label htmlFor="nw">Member's name</label>
-            <input id="nw" type="search" autoFocus value={who} onChange={(e) => setWho(e.target.value)} autoComplete="off" placeholder="Type a name" /></div>
-          {who.trim() && !found.length && <p className="note">No member without notes named “{who.trim()}”.</p>}
-          {found.length > 0 && (
-            <ul className="rows">
-              {found.map((m) => (
-                <li key={m.uid}><span>{m.name}</span><button className="btn-mini" onClick={() => edit(m.uid, m.name)}>Add Notes</button></li>
-              ))}
-            </ul>
-          )}
-          <button className="copy wide" onClick={() => { setAdding(false); setWho('') }}>Cancel</button>
-        </div>
-      )}
-      {!saved.length ? <p className="note section">{search ? `No notes for “${search}”.` : 'No notes yet.'}</p> : (
-        <ul className="rows panel notes-list">
-          {saved.map(([uid, n]) => (
-            <li key={uid} className="note-row">
-              <span><b>{n.name}</b><small className="advance-sub">{when(n.updatedAt)} · {n.text}</small></span>
-              <button className="btn-mini" onClick={() => edit(uid, n.name)}>Edit notes</button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  )
-}
-
 /** Advance Payment tab: savings recorded before the month they are for (recorded on each member's page). */
 function AdvanceList({ list, total, search }: { list: Txn[]; total: number; search: string }) {
   const paidOn = (ms: number) => new Date(ms).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' })
@@ -607,10 +561,8 @@ function Requests({ requests, year }: { requests: LoanRequest[]; year: number })
 }
 
 // ---------- loans: active and closed ----------
-function LoansAdmin({ requests, members, txns, year }: { requests: LoanRequest[]; members: StoredMember[]; txns: Txn[]; year: number }) {
-  const [view, setView] = useState<'advance' | 'active' | 'closed' | 'notes'>('active')
-  const [notes, setNotes] = useState<Record<string, Note>>({})
-  useEffect(() => watchNotes(setNotes), [])
+function LoansAdmin({ requests, txns, year }: { requests: LoanRequest[]; txns: Txn[]; year: number }) {
+  const [view, setView] = useState<'advance' | 'active' | 'closed'>('active')
   const [q, setQ] = useState('')
   // loans approved before references existed get theirs (1FL, 2FL, …) the first time this tab opens
   // loan references for this cycle (13SL #14): numbers every loan once under the scheme, then only new ones
@@ -635,12 +587,10 @@ function LoansAdmin({ requests, members, txns, year }: { requests: LoanRequest[]
         <button role="tab" aria-selected={view === 'advance'} onClick={() => setView('advance')}><b className="seg-count">{advance.length}</b>Advance Payment</button>
         <button role="tab" aria-selected={view === 'active'} onClick={() => setView('active')}><b className="seg-count">{active.length}</b>Active Loans</button>
         <button role="tab" aria-selected={view === 'closed'} onClick={() => setView('closed')}><b className="seg-count">{closed.length}</b>Closed Loans</button>
-        <button role="tab" aria-selected={view === 'notes'} onClick={() => setView('notes')}><b className="seg-count">{Object.keys(notes).length}</b>Notes</button>
       </div>
       <div className="field"><label htmlFor="lq">Search by name</label>
         <input id="lq" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" /></div>
-      {view === 'notes' ? <NotesPanel members={members} notes={notes} search={q.trim()} />
-        : view === 'advance' ? <AdvanceList list={advanceShown} total={advance.reduce((t, x) => t + x.amount, 0)} search={q.trim()} />
+      {view === 'advance' ? <AdvanceList list={advanceShown} total={advance.reduce((t, x) => t + x.amount, 0)} search={q.trim()} />
         : !list.length ? <p className="note section">{q.trim() ? `No ${view} loans for “${q.trim()}”.` : view === 'active' ? 'No active loans.' : 'No closed loans yet.'}</p> : (
         <ul className="requests">
           {list.map((r) => (

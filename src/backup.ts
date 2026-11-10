@@ -1,6 +1,6 @@
 // Whole-database backups: one JSON file the admin keeps, used to restore after a clear or a mistake.
 
-export const BACKUP_COLLECTIONS = ['members', 'founders', 'logins', 'loanRequests', 'transactions', 'settings', 'coop', 'counters', 'notes'] as const
+export const BACKUP_COLLECTIONS = ['members', 'founders', 'logins', 'loanRequests', 'transactions', 'settings', 'coop', 'counters'] as const
 export type BackupCollection = (typeof BACKUP_COLLECTIONS)[number]
 export type BackupDoc = { id: string; data: Record<string, unknown> }
 export type Backup = { app: 'hilas-coop'; version: 1; exportedAt: number; collections: Partial<Record<BackupCollection, BackupDoc[]>> }
@@ -13,6 +13,8 @@ export function parseBackup(text: string): Backup | { error: string } {
   let b: Backup
   try { b = JSON.parse(text) } catch { return { error: 'That file is not a backup (it could not be read).' } }
   if (b?.app !== 'hilas-coop' || b.version !== 1 || typeof b.collections !== 'object') return { error: 'That file is not a Hilas Coop backup.' }
+  // backups made while the admin Notes tab existed carry a notes list: dropped, not refused
+  delete (b.collections as Record<string, unknown>).notes
   for (const [name, docs] of Object.entries(b.collections)) {
     const known = (BACKUP_COLLECTIONS as readonly string[]).includes(name)
     const ok = Array.isArray(docs) && docs.every((d) => typeof d?.id === 'string' && d.id && typeof d.data === 'object' && d.data)

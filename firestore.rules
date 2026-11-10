@@ -15,11 +15,6 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
-    // the admin's private notes on members (one per member, doc id = member uid): members never see them
-    match /notes/{uid} {
-      allow read, write: if isAdmin();
-    }
-
     match /settings/{doc} {
       allow read: if signedIn();
       allow write: if isAdmin();
