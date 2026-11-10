@@ -71,3 +71,10 @@ export function advancePayments(txns: Txn[], cycle: number) {
 
 /** Savings for `month` recorded at `at` are paid in advance: before that month began (Philippine time). */
 export const isAdvance = (month: number, cycle: number, at: number) => at < Date.UTC(cycle, month, 1) - 8 * 3600_000
+
+/**
+ * A savings entry, for highlighting a month: savings paid (or paid back), and a missed month carried over as a Savings
+ * Loan (its carry-over mark and the loan released). Not interest, loan payments, or other loans.
+ */
+export const savingsEntry = (t: Txn, savingsLoanIds: Set<string>) =>
+  t.kind === 'savings' || (!!t.loanId && savingsLoanIds.has(t.loanId) && (t.kind === 'release' || (!!t.carryover && t.loanBefore?.status !== 'approved')))

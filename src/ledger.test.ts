@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { RECRUITS, recruiterOf, BOARD } from './accounts'
-import { advancePayments, carryoverMonths, ledgerFrom, monthRange, newestLiveForLoan, quarterTotals, type Txn } from './ledger'
+import { advancePayments, carryoverMonths, ledgerFrom, monthRange, newestLiveForLoan, quarterTotals, savingsEntry, type Txn } from './ledger'
 
 const t = (over: Partial<Txn>): Txn => ({
   id: Math.random().toString(36), memberId: 'm', memberName: 'M', kind: 'savings', amount: 0, month: 0, cycle: 2026,
@@ -85,4 +85,17 @@ it('advance savings: recorded before the month they are for began (Philippine ti
     t({ id: 'dec1', kind: 'savings', amount: 1000, month: 11, createdAt: Date.UTC(2026, 10, 30, 16, 1) }), // Dec 1, 12:01 AM Manila
   ], 2026)
   expect(list.map((x) => x.id)).toEqual(['nov30', 'dec', 'jan'])
+})
+
+it('a month click highlights savings, a savings carry-over and its Savings Loan release, nothing else', () => {
+  const sl = new Set(['S1'])
+  const e = (over: Partial<Txn>): Txn => ({ id: 'x', memberId: 'm', memberName: 'M', kind: 'note', amount: 0, month: 2, cycle: 2026, note: '', createdAt: 1, ...over })
+  const snap = (status: string) => ({ status }) as Txn['loanBefore']
+  expect(savingsEntry(e({ kind: 'savings', amount: 6000 }), sl)).toBe(true)
+  expect(savingsEntry(e({ kind: 'savings', amount: 6000, loanId: 'S1' }), sl)).toBe(true)
+  expect(savingsEntry(e({ kind: 'release', amount: 6000, loanId: 'S1' }), sl)).toBe(true)
+  expect(savingsEntry(e({ carryover: true, loanId: 'S1', loanBefore: snap('withdrawn') }), sl)).toBe(true)
+  expect(savingsEntry(e({ carryover: true, loanId: 'S1', loanBefore: snap('approved') }), sl)).toBe(false) // a monthly 10%
+  expect(savingsEntry(e({ kind: 'release', amount: 48000, loanId: 'F1' }), sl)).toBe(false) // another loan
+  expect(savingsEntry(e({ kind: 'interest', amount: 400, loanId: 'F1' }), sl)).toBe(false)
 })

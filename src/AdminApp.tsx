@@ -7,7 +7,7 @@ import { dueDay, interestLine, MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconClock, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
 import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext, loanMonth, loanPeriod, loanDeadline, missedInterest, paymentHistory, periodAt, recordedLate, replayLoan, waivedDue, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
-import { advancePayments, carryoverMonths, isAdvance } from './ledger'
+import { advancePayments, carryoverMonths, isAdvance, savingsEntry } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
 import { askText, askYes, tell } from './dialog'
@@ -171,7 +171,10 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
     const target = document.querySelector('.txns li.hl') ?? document.getElementById('txn-history')
     target?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' })
   }, [jump])
-  const jumpCount = jump ? txns.filter((t) => t.month === jump.month && t.cycle === year).length : 0
+  // only its savings: savings paid, and a missed month carried over as a Savings Loan (not interest or loan payments)
+  const savingsLoanIds = new Set(requests.filter((r) => r.type === 'savings').map((r) => r.id))
+  const inJump = (t: Txn) => !!jump && t.month === jump.month && t.cycle === year && savingsEntry(t, savingsLoanIds)
+  const jumpCount = jump ? txns.filter(inJump).length : 0
   const recruiter = members.find((x) => x.uid === m.recruiterId)
   const expected = m.founder ? RECRUITS[m.name] ?? [] : []
 
@@ -231,8 +234,8 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
             <CarrySavings m={m} year={year} onDone={(text) => setMsg({ ok: true, text })} />
           </>}
         {msg && <p className={msg.ok ? 'success' : 'alert'} role="status">{msg.text}</p>}
-        {jump && <p className="note" role="status">{jumpCount ? `${MONTHS[jump.month]}: ${jumpCount} entr${jumpCount === 1 ? 'y' : 'ies'} highlighted.` : `No ${MONTHS[jump.month]} entries yet.`} <button className="link inline" onClick={() => setJump(null)}>Clear</button></p>}
-        <TxnList txns={txns} onVoid={askVoid} rows={4} highlight={jump ? { month: jump.month, cycle: year } : undefined} />
+        {jump && <p className="note" role="status">{jumpCount ? `${MONTHS[jump.month]} savings: ${jumpCount} entr${jumpCount === 1 ? 'y' : 'ies'} highlighted.` : `No ${MONTHS[jump.month]} savings entries yet.`} <button className="link inline" onClick={() => setJump(null)}>Clear</button></p>}
+        <TxnList txns={txns} onVoid={askVoid} rows={4} highlight={jump ? inJump : undefined} />
       </div>
 
       <div className="section">

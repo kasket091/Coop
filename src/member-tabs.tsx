@@ -86,7 +86,7 @@ const KIND_LABEL: Record<Txn['kind'], string> = {
 
 /** A member's money history, newest first. Voided entries stay visible, crossed out. */
 export function TxnList({ txns, onVoid, highlight, rows }: {
-  txns: Txn[]; onVoid?: (t: Txn) => void; highlight?: { month: number; cycle: number }
+  txns: Txn[]; onVoid?: (t: Txn) => void; highlight?: (t: Txn) => boolean
   /** show this many entries, the rest by scrolling inside the list (rows differ in height, so it is measured) */
   rows?: number
 }) {
@@ -101,7 +101,7 @@ export function TxnList({ txns, onVoid, highlight, rows }: {
   return (
     <ul className={`txns${rows ? ' scroll' : ''}`} ref={list}>
       {txns.map((t) => (
-        <li key={t.id} className={[t.voidedAt && 'voided', t.month === highlight?.month && t.cycle === highlight.cycle && 'hl'].filter(Boolean).join(' ') || undefined}>
+        <li key={t.id} className={[t.voidedAt && 'voided', highlight?.(t) && 'hl'].filter(Boolean).join(' ') || undefined}>
           <span className="txn-main">
             <b>{t.carryover ? 'Carryover' : KIND_LABEL[t.kind]}</b>
             <small>{fmtDate(t.createdAt)} · {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][t.month]} {t.cycle}{t.note ? ` · ${t.note}` : ''}</small>
