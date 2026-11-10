@@ -43,7 +43,7 @@ it('a paid-off loan ends at nothing owed', () => {
 it('a Savings Loan opens with the carried-over savings and the 10% added', () => {
   const sl = { ...flex, id: 'S1', type: 'savings', ref: '4SL', amount: 6000, balance: 6600, carriedMonth: 9, upfront: true } as LoanRequest
   const open = [t({ kind: 'savings', amount: 6000, loanId: 'S1', loanBefore: snap(6600, 'withdrawn'), note: 'October savings carried over as loan 4SL' })]
-  expect(accountLog([sl], open)).toEqual([{ title: 'March', groups: [{ title: '4SL · Savings Loan', lines: [{ at: MAR6, label: 'Oct savings carried over (+10%)', amount: 6000, balance: 6600 }] }] }])
+  expect(accountLog([sl], open)).toEqual([{ title: 'October', groups: [{ title: '4SL · Savings Loan', lines: [{ at: MAR6, label: 'Oct savings carried over (+10%)', amount: 6000, balance: 6600 }] }] }])
 })
 
 it('carryovers added together (a backdated loan) go under the due dates they were for, in order', () => {
@@ -75,4 +75,9 @@ it("a recalculated loan: one Interest and Loan Payment line per payment, its bal
 it("savings go under the month they are for, not the day they were recorded", () => {
   const janLate = t({ kind: 'savings', amount: 6000, month: 0, createdAt: day(10, 10) }) // January's, recorded Nov 10
   expect(accountLog([], [janLate])).toEqual([{ title: 'January', groups: [{ title: 'Savings', lines: [{ at: day(10, 10), label: 'Jan savings', amount: 6000 }] }] }])
+})
+
+it('a savings carry-over goes under the month whose savings it carried, not the day it was made', () => {
+  const sl = { ...flex, id: 'S1', type: 'savings', ref: '4SL', amount: 6000, balance: 6600, carriedMonth: 9, upfront: true, decidedAt: day(10, 10), createdAt: day(10, 10) } as LoanRequest
+  expect(accountLog([sl], []).map((s) => s.title)).toEqual(['October'])
 })

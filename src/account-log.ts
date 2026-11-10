@@ -69,8 +69,8 @@ function loanLines(r: LoanRequest, txns: Txn[]): LogLine[] {
 const MONTH_NAME = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
 /**
- * By month, newest month first. Savings go under the month they are for (January's savings under January, even when
- * recorded later or ahead); everything else under the month it happened. Within a month, entries are grouped
+ * By month, newest month first. Savings, and a savings carry-over, go under the month they are for (January's savings
+ * under January, even when recorded later or ahead); everything else under the month it happened. Within a month, entries are grouped
  * (savings, and each loan by its ID), the group with the latest entry first, newest entry first within each group.
  */
 export function accountLog(loans: LoanRequest[], txns: Txn[]): LogSection[] {
@@ -80,7 +80,11 @@ export function accountLog(loans: LoanRequest[], txns: Txn[]): LogSection[] {
     line: { at: t.createdAt, label: t.kind === 'savings' ? `${MONTH[t.month]} savings` : t.note, ...(t.amount > 0 ? { amount: t.amount } : {}) } as LogLine,
   }))
   const loanLog = loans.filter((r) => r.status === 'approved' || r.status === 'paid')
-    .flatMap((r) => loanLines(r, txns).map((line) => ({ key: r.id, group: [r.ref, LOAN[r.type]].filter(Boolean).join(' · '), month: monthKey(line.at), line })))
+    .flatMap((r) => loanLines(r, txns).map((line, i) => ({
+      key: r.id, group: [r.ref, LOAN[r.type]].filter(Boolean).join(' · '), line,
+      // a savings carry-over (its opening line) goes under the month whose savings it carried, like savings do
+      month: i === 0 && r.type === 'savings' && r.carriedMonth !== undefined ? Math.floor(monthKey(line.at) / 12) * 12 + r.carriedMonth : monthKey(line.at),
+    })))
   // newest month first, then newest first; entries saved together keep their order reversed, so the one carrying
   // the balance stays on top
   const all = [...own, ...loanLog].map((e, i) => ({ ...e, i })).sort((a, b) => b.month - a.month || b.line.at - a.line.at || b.i - a.i)
