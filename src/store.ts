@@ -12,7 +12,7 @@ import {
 import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { auth, db, firebaseConfig } from './firebase'
 import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
-import { balanceOf, customPayment, interestDueNow, loanPeriod, paymentHistory, periodInMonth, recordedLate, replayLoan, type HistoryPayment, loanSnapshot, missedInterest, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
+import { balanceOf, customPayment, interestDueNow, loanDeadline, loanPeriod, paymentHistory, recordedLate, replayLoan, type HistoryPayment, loanSnapshot, missedInterest, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { feeTopUps, payFromSavings } from './termination'
@@ -373,19 +373,18 @@ export const payForSavings = (id: string, year: number) =>
 
 /**
  * Any amount paid: interest first, then carried-over interest, then the amount borrowed. `at` is the day it was paid
- * (a late entry): its month follows that day. `forMonth` ('2026-05') is the month whose interest it pays (default: the
- * period running that day); paid in full, that month has nothing to carry over. The entry is still dated now, so
- * Void keeps its order.
+ * (a late entry): its month follows that day. `forAt` is a day in the 1-month period whose interest it pays (default:
+ * the day paid); that period then has nothing to carry over. The entry is still dated now, so Void keeps its order.
  */
-export const loanCustomPayment = async (id: string, year: number, amount: number, at = Date.now(), forMonth?: string) => {
+export const loanCustomPayment = async (id: string, year: number, amount: number, at = Date.now(), forAt = at) => {
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
     const paidDay = new Date(at + 8 * 3600_000) // Manila
     if (at > Date.now()) throw new Error("The date paid can't be in the future.")
     if (paidDay.getUTCFullYear() !== year) throw new Error(`Choose a date in ${year}.`)
     if (at < (r.decidedAt ?? r.createdAt) - 86_400_000) throw new Error(`This loan started ${dueDay(r.decidedAt ?? r.createdAt)}; choose that day or later.`)
-    const period = forMonth ? periodInMonth(r, forMonth) : loanPeriod(r, at)
-    if (!period) throw new Error('No interest is due on this loan in that month.')
+    if (forAt < (r.decidedAt ?? r.createdAt) - 86_400_000 || forAt > loanDeadline(r) + 86_400_000) throw new Error(`Choose a period date from the loan's start to ${dueDay(loanDeadline(r))}.`)
+    const period = loanPeriod(r, forAt)
     // recorded late: an earlier month was already carried over, or a later payment is already in. Rebuild the loan
     // from its capital and every payment in date order, so months paid in time carry nothing
     if (recordedLate(r, lt, at, period.n)) return recalculated(r, lt, [...paymentHistory(r, lt), { at, amount, period: period.n }], at)

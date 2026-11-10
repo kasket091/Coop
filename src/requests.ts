@@ -161,14 +161,6 @@ export function loanDeadline(r: LoanRequest) {
   return Date.UTC(new Date((r.decidedAt ?? r.createdAt) + PH).getUTCFullYear(), 11, 15) - PH
 }
 
-/** The period due in a month ('2026-05'), for a payment meant for that month; null if none is due then. */
-export function periodInMonth(r: LoanRequest, month: string): LoanPeriod | null {
-  for (let p = periodAt(r, 1); ; p = periodAt(r, p.n + 1)) {
-    if (new Date(p.dueAt + PH).toISOString().slice(0, 7) === month) return p
-    if (p.last) return null
-  }
-}
-
 /** The period running at `now` (the last one, Dec 15's, once that has passed). */
 export function loanPeriod(r: LoanRequest, now = Date.now()): LoanPeriod {
   let p = periodAt(r, 1)
