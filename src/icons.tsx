@@ -25,8 +25,8 @@ export const IconChart = () => (
 export const IconCheck = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...S} strokeWidth={3}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
 )
-export const IconNote = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true" {...S}><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6M8 13h8M8 17h5" /></svg>
+export const IconClock = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" {...S}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
 )
 export const IconAlert = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...S} strokeWidth={2.5}><path d="M12 7v6M12 17h0" /></svg>

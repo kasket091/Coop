@@ -4,7 +4,7 @@ import { RECRUITS, startingPassword } from './accounts'
 import { backupSummary, parseBackup, type Backup } from './backup'
 import { Dashboard } from './Dashboard'
 import { dueDay, interestLine, MONTHS, peso } from './format'
-import { IconChart, IconCoop, IconLoans, IconNote, IconPay, IconSavings } from './icons'
+import { IconChart, IconCoop, IconLoans, IconClock, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
 import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext, loanMonth, loanPeriod, missedInterest, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { advancePayments, carryoverMonths, isAdvance } from './ledger'
@@ -376,7 +376,7 @@ function LogButton({ m, requests, txns }: { m: StoredMember; requests: LoanReque
   const [open, setOpen] = useState(false)
   const log = open ? accountLog(requests.filter((r) => r.borrowerId === m.uid), txns) : []
   return <>
-    <button className="note-btn" onClick={() => { setOpen(true); ref.current?.showModal() }} aria-label={`Account log for ${m.name}`} title="Account log"><IconNote /></button>
+    <button className="note-btn" onClick={() => { setOpen(true); ref.current?.showModal() }} aria-label={`Account log for ${m.name}`} title="Account log"><IconClock /></button>
     <dialog ref={ref} className="ask log" aria-labelledby={`log-${m.uid}`} onClose={() => setOpen(false)}>
       <h2 id={`log-${m.uid}`}>Account log · {m.name}</h2>
       {open && (log.length ? log.map((s, i) => (
