@@ -12,7 +12,7 @@ import {
 import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { auth, db, firebaseConfig } from './firebase'
 import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
-import { balanceOf, customPayment, interestDueNow, loanPeriod, loanSnapshot, missedInterest, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
+import { balanceOf, customPayment, interestDueNow, loanPeriod, periodInMonth, loanSnapshot, missedInterest, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { feeTopUps, payFromSavings } from './termination'
@@ -369,17 +369,20 @@ export const payForSavings = (id: string, year: number) =>
 
 /**
  * Any amount paid: interest first, then carried-over interest, then the amount borrowed. `at` is the day it was paid
- * (a late entry): its period and month follow that day. The entry is still dated now, so Void keeps its order.
+ * (a late entry): its month follows that day. `forMonth` ('2026-05') is the month whose interest it pays (default: the
+ * period running that day); paid in full, that month has nothing to carry over. The entry is still dated now, so
+ * Void keeps its order.
  */
-export const loanCustomPayment = async (id: string, year: number, amount: number, at = Date.now()) => {
+export const loanCustomPayment = async (id: string, year: number, amount: number, at = Date.now(), forMonth?: string) => {
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
     const paidDay = new Date(at + 8 * 3600_000) // Manila
     if (at > Date.now()) throw new Error("The date paid can't be in the future.")
     if (paidDay.getUTCFullYear() !== year) throw new Error(`Choose a date in ${year}.`)
     if (at < (r.decidedAt ?? r.createdAt) - 86_400_000) throw new Error(`This loan started ${dueDay(r.decidedAt ?? r.createdAt)}; choose that day or later.`)
-    const period = loanPeriod(r, at)
-    const p = customPayment(r, amount, interestDueNow(r, lt, at))
+    const period = forMonth ? periodInMonth(r, forMonth) : loanPeriod(r, at)
+    if (!period) throw new Error('No interest is due on this loan in that month.')
+    const p = customPayment(r, amount, interestDueNow(r, lt, at, period))
     if ('error' in p) throw new Error(p.error)
     const toPrincipal = Math.round((amount - p.collected) * 100) / 100
     const what = `Custom payment of ${php(amount)}${dueDay(at) === dueDay(Date.now()) ? '' : ` paid ${dueDay(at)}`}`

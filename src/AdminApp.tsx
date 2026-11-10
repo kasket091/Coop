@@ -6,7 +6,7 @@ import { Dashboard } from './Dashboard'
 import { dueDay, interestLine, MONTHS, peso } from './format'
 import { IconChart, IconCoop, IconLoans, IconClock, IconPay, IconSavings } from './icons'
 import { RequestCard, TxnList } from './member-tabs'
-import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext, loanMonth, loanPeriod, missedInterest, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
+import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext, loanMonth, loanPeriod, missedInterest, periodAt, periodInMonth, monthInterest, payInterest, savingsPayback, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { advancePayments, carryoverMonths, isAdvance } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
@@ -461,7 +461,7 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
               onCancel={() => setDating(null)} onSave={(at) => run(r.id, () => setLoanDate(r.id, year, at))} />}
             {paying === r.id && <CustomPay r={r} txns={txns} year={year} amount={payAmount} onAmount={setPayAmount} busy={busy === r.id}
               onCancel={() => setPaying(null)}
-              onRecord={(n, at) => run(r.id, () => loanCustomPayment(r.id, year, n, at))} />}
+              onRecord={(n, at, forMonth) => run(r.id, () => loanCustomPayment(r.id, year, n, at, forMonth))} />}
           </li>
         ) })}
       </ul>
@@ -524,15 +524,19 @@ function EditLoanDate({ r, txns, year, busy, onCancel, onSave }: {
 
 /** Inline form: the amount and the day it was paid (earlier for a late entry); how it splits, before recording it. */
 function CustomPay({ r, txns, year, amount, onAmount, busy, onCancel, onRecord }: {
-  r: LoanRequest; txns: Txn[]; year: number; amount: string; onAmount: (s: string) => void; busy: boolean; onCancel: () => void; onRecord: (n: number, at: number) => void
+  r: LoanRequest; txns: Txn[]; year: number; amount: string; onAmount: (s: string) => void; busy: boolean; onCancel: () => void; onRecord: (n: number, at: number, forMonth: string) => void
 }) {
   const [date, setDate] = useState(ymd(Date.now()))
   const at = manilaNoon(date)
   const first = ymd(r.decidedAt ?? r.createdAt) > `${year}-01-01` ? ymd(r.decidedAt ?? r.createdAt) : `${year}-01-01`
   const dateOk = !!at && date >= first && date <= ymd(Date.now())
-  const due = dateOk ? interestDueNow(r, txns, at) : 0
+  // the month whose interest this pays: the period running on the day paid, unless another month is picked
+  const [picked, setPicked] = useState('')
+  const forMonth = picked || ymd(loanPeriod(r, at || Date.now()).dueAt).slice(0, 7)
+  const period = periodInMonth(r, forMonth)
+  const due = dateOk && period ? interestDueNow(r, txns, at, period) : 0
   const n = Number(amount.replace(/[^\d.]/g, '')) || 0
-  const p = n > 0 && dateOk ? customPayment(r, n, due) : null
+  const p = n > 0 && dateOk && period ? customPayment(r, n, due) : null
   return (
     <div className="custom-pay">
       <label htmlFor={`cp-${r.id}`}>Amount paid (₱)</label>
@@ -540,6 +544,14 @@ function CustomPay({ r, txns, year, amount, onAmount, busy, onCancel, onRecord }
       <label htmlFor={`cpd-${r.id}`}>Date paid</label>
       <input id={`cpd-${r.id}`} type="date" value={date} min={first} max={ymd(Date.now())} onChange={(e) => setDate(e.target.value)} />
       {!dateOk && <p className="alert" role="status">Choose a day from {dueDay(manilaNoon(first))} to today.</p>}
+      {/* a Savings Loan's 10% goes straight into what is owed, so its payments have no month to pick */}
+      {r.type !== 'savings' && <>
+        <label htmlFor={`cpm-${r.id}`}>For month</label>
+        <input id={`cpm-${r.id}`} type="month" value={forMonth} min={ymd(periodAt(r, 1).dueAt).slice(0, 7)} max={`${year}-12`} onChange={(e) => setPicked(e.target.value)} />
+        <p className={period ? 'note' : 'alert'} role="status">{period
+          ? `Pays the interest due ${dueDay(period.dueAt)}${due > 0 ? ` (${peso(due)})` : ' (already paid or carried over)'}, then the balance.`
+          : 'No interest is due on this loan in that month.'}</p>
+      </>}
       {p && ('error' in p
         ? <p className="alert" role="status">{p.error}</p>
         : <p className="note" role="status">
@@ -548,7 +560,7 @@ function CustomPay({ r, txns, year, amount, onAmount, busy, onCancel, onRecord }
             {p.interestPart < due ? ` (${peso(due - p.interestPart)} unpaid interest carries over)` : ''}
           </p>)}
       <span className="pay-buttons">
-        <button className="btn" disabled={busy || !p || 'error' in p} onClick={() => onRecord(n, at)}>Record payment</button>
+        <button className="btn" disabled={busy || !p || 'error' in p} onClick={() => onRecord(n, at, forMonth)}>Record payment</button>
         <button className="copy" onClick={onCancel}>Cancel</button>
       </span>
     </div>

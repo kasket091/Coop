@@ -161,6 +161,14 @@ export function loanDeadline(r: LoanRequest) {
   return Date.UTC(new Date((r.decidedAt ?? r.createdAt) + PH).getUTCFullYear(), 11, 15) - PH
 }
 
+/** The period due in a month ('2026-05'), for a payment meant for that month; null if none is due then. */
+export function periodInMonth(r: LoanRequest, month: string): LoanPeriod | null {
+  for (let p = periodAt(r, 1); ; p = periodAt(r, p.n + 1)) {
+    if (new Date(p.dueAt + PH).toISOString().slice(0, 7) === month) return p
+    if (p.last) return null
+  }
+}
+
 /** The period running at `now` (the last one, Dec 15's, once that has passed). */
 export function loanPeriod(r: LoanRequest, now = Date.now()): LoanPeriod {
   let p = periodAt(r, 1)
@@ -179,8 +187,8 @@ export function endedPeriods(r: LoanRequest, now = Date.now()): LoanPeriod[] {
  * Interest to pay now, apart from what is owed: this period's for most loans. A Savings Loan has none: its 10% goes
  * straight into what is owed on each 8th, so its payments always come off that.
  */
-export function interestDueNow(r: LoanRequest, txns: Txn[], now = Date.now()) {
-  return r.type === 'savings' ? 0 : interestDue(r, txns, loanPeriod(r, now))
+export function interestDueNow(r: LoanRequest, txns: Txn[], now = Date.now(), p = loanPeriod(r, now)) {
+  return r.type === 'savings' ? 0 : interestDue(r, txns, p)
 }
 
 /** What a loan card says about interest: due now, the next 10% a Savings Loan will add, the next due date, or pay by Dec 15. */

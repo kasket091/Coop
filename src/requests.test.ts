@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { depositAmount, type Member } from './rules'
 import type { Txn } from './ledger'
 import {
-  canAdminApprove, carryover, compoundFix, comakerMode, customPayment, endedPeriods, interestDue, loanDeadline, loanPeriod, missedInterest, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
+  canAdminApprove, carryover, compoundFix, periodInMonth, comakerMode, customPayment, endedPeriods, interestDue, loanDeadline, loanPeriod, missedInterest, loanSnapshot, monthInterest, payInterest, savingsPayback, requestStage, settleInterest, unpaidLoans, validateRequest, type LoanRequest,
 } from './requests'
 
 const zeros = () => Array(12).fill(0)
@@ -261,6 +261,15 @@ describe("each loan's interest is due monthly from its start (Philippine time), 
   const at = (y: number, m: number, d: number, h = 12) => Date.UTC(y, m, d, h - 8) // h o'clock in Manila
   const loan = (decidedAt: number, over: Partial<LoanRequest> = {}) => ({ ...req('approved', 'approved', 'approved'), decidedAt, ...over } as LoanRequest)
 
+  it('the period due in a chosen month (YYYY-MM): Feb 6 loan, May is the one due May 6; none before March or after December', () => {
+    const r = loan(at(2026, 1, 6, 10))
+    expect(periodInMonth(r, '2026-05')).toMatchObject({ n: 3, dueAt: at(2026, 4, 6, 0) })
+    expect(periodInMonth(r, '2026-12')).toMatchObject({ dueAt: at(2026, 11, 6, 0) })
+    expect(periodInMonth(r, '2026-02')).toBeNull()
+    expect(periodInMonth(r, '2027-01')).toBeNull()
+    const sl = loan(at(2026, 9, 8), { type: 'savings', carriedMonth: 9, upfront: true })
+    expect(periodInMonth(sl, '2026-11')).toMatchObject({ n: 2, dueAt: at(2026, 10, 7, 0) })
+  })
   it('approved Oct 28: period 1 is due Nov 28, period 2 runs from Nov 29', () => {
     const r = loan(at(2026, 9, 28, 10))
     expect(loanPeriod(r, at(2026, 10, 10))).toEqual({ n: 1, startsAt: at(2026, 9, 28, 10), dueAt: at(2026, 10, 28, 0), endsAt: at(2026, 10, 29, 0), last: false })
