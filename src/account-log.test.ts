@@ -60,3 +60,14 @@ it('carryovers added together (a backdated loan) go under the due dates they wer
     ['March', [[MAR6, 48000]]],
   ])
 })
+
+it("a recalculated loan: one Interest and Loan Payment line per payment, its balance, and no line for the recalculation itself", () => {
+  const NOV10 = day(10, 10)
+  const re = [
+    t({ loanId: 'L1', restores: ['old1'], loanBefore: snap(99999), createdAt: NOV10, note: 'Loan 3FL recalculated from its payments in date order' }),
+    t({ kind: 'principal', amount: 12359.26, loanId: 'L1', period: 3, paidOn: day(4, 4), loanBefore: snap(99999), createdAt: NOV10, note: 'Payment of ₱24,825.44 paid May 4: off the balance; balance now ₱35,640.74' }),
+    t({ kind: 'interest', amount: 12466.18, loanId: 'L1', period: 3, paidOn: day(4, 4), loanBefore: snap(99999), createdAt: NOV10, note: 'Payment of ₱24,825.44 paid May 4: interest part; balance now ₱35,640.74' }),
+  ]
+  const may = accountLog([{ ...flex, balance: 35640.74 }], re)[0]
+  expect(may).toEqual({ title: 'May', groups: [{ title: '3FL · Flex loan', lines: [{ at: day(4, 4), label: 'Interest and Loan Payment', amount: 24825.44, balance: 35640.74 }] }] })
+})

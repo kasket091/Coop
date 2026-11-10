@@ -15,6 +15,8 @@ export type Txn = {
   settles?: boolean
   /** the day the money was paid, when recorded later (createdAt stays the day it was recorded) */
   paidOn?: number
+  /** a loan recalculated from its history: the entries it replaced (voided); voiding this puts them back */
+  restores?: string[]
 }
 
 const cents = (x: number) => Math.round(x * 100) / 100

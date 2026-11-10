@@ -232,8 +232,10 @@ export function interestDue(r: LoanRequest, txns: Txn[], p: LoanPeriod) {
   // a Savings Loan's 10% is added on each 8th until the missed savings are paid in full; paying interest only
   // brings the balance down, it doesn't stop the next month's 10%
   if (r.type === 'savings') return monthInterest(r)
-  const paid = mine.filter((t) => t.kind === 'interest').reduce((sum, t) => sum + t.amount, 0)
-  return cents(Math.max(0, monthInterest(r) - paid))
+  // a payment for this period settles it: Pay interest pays it all, and a custom payment carries any shortfall into
+  // the balance at once. Re-checking it later against a bigger balance would charge the month twice
+  if (mine.some((t) => t.kind === 'interest' || t.kind === 'principal')) return 0
+  return monthInterest(r)
 }
 
 const cents = (x: number) => Math.round(x * 100) / 100
@@ -245,6 +247,64 @@ export const balanceOf = (r: LoanRequest) => r.balance ?? r.amount
  */
 export const monthInterest = (r: LoanRequest) =>
   r.type === 'regular' || (r.type === 'savings' && !(principalOf(r) > 0)) ? 0 : cents(balanceOf(r) * MONTHLY_LOANS[r.type].rate)
+
+/** A payment in a loan's history: the day paid, the amount, and the period whose interest it pays first. */
+export type HistoryPayment = { at: number; amount: number; period: number }
+export type ReplayStep =
+  | { type: 'carryover'; period: LoanPeriod; due: number; balance: number }
+  | { type: 'payment'; pay: HistoryPayment; interestPart: number; collected: number; principalPaid: number; balance: number }
+
+/**
+ * A monthly-rate loan rebuilt from its capital and its payments in date order, for payments recorded late: each
+ * period's unpaid interest is carried over when it ends, each payment pays its period's interest first (then carried
+ * interest, then the amount borrowed), so a month paid in time carries nothing. Not for Savings Loans.
+ */
+export function replayLoan(r: LoanRequest, payments: HistoryPayment[], now = Date.now()) {
+  let cur: LoanRequest = { ...r, balance: r.amount, principal: r.amount, carryovers: 0 }
+  const paid: Record<number, number> = {}
+  const carried = new Set<number>()
+  const steps: ReplayStep[] = []
+  const queue = [...payments].sort((a, b) => a.at - b.at)
+  let paidOffAt: number | undefined
+  const pay = (x: HistoryPayment) => {
+    if (paidOffAt) throw new Error(`The loan was already paid off before the ${dueDayPH(x.at)} payment.`)
+    const due = carried.has(x.period) || paid[x.period] !== undefined ? 0 : monthInterest(cur)
+    const p = customPayment(cur, x.amount, due)
+    if ('error' in p) throw new Error(`${dueDayPH(x.at)} payment: ${p.error}`)
+    paid[x.period] = cents((paid[x.period] ?? 0) + p.interestPart)
+    cur = { ...cur, balance: p.balance, principal: p.principal }
+    steps.push({ type: 'payment', pay: x, interestPart: p.interestPart, collected: p.collected, principalPaid: cents(x.amount - p.collected), balance: p.balance })
+    if (p.paidOff) paidOffAt = x.at
+  }
+  for (const p of endedPeriods(r, now)) {
+    while (queue.length && queue[0].at < p.endsAt) pay(queue.shift()!)
+    if (paidOffAt) break
+    const due = paid[p.n] !== undefined ? 0 : monthInterest(cur) // a month with a payment is settled (interestDue)
+    if (due > 0) { cur = { ...cur, ...carryover(cur, due) }; carried.add(p.n); steps.push({ type: 'carryover', period: p, due, balance: balanceOf(cur) }) }
+  }
+  while (queue.length) pay(queue.shift()!)
+  return { steps, balance: balanceOf(cur), principal: principalOf(cur), carryovers: cur.carryovers ?? 0, paidOffAt }
+}
+const dueDayPH = (ms: number) => new Date(ms).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' })
+
+/** A loan's payments so far (custom payments and Pay interest), one per action, with the day each was paid. */
+export function paymentHistory(r: LoanRequest, lt: Txn[]): (HistoryPayment & { ids: string[] })[] {
+  const byAction = new Map<number, Txn[]>()
+  for (const t of lt) if (t.loanId === r.id && !t.voidedAt && (t.kind === 'interest' || t.kind === 'principal')) byAction.set(t.createdAt, [...(byAction.get(t.createdAt) ?? []), t])
+  // a recalculation wrote several payments at once: keep them apart by the day each was paid
+  return [...byAction.values()].flatMap((g) => {
+    const byDay = new Map<string, Txn[]>()
+    for (const t of g) { const k = `${t.paidOn ?? t.createdAt}|${t.period ?? ''}`; byDay.set(k, [...(byDay.get(k) ?? []), t]) }
+    return [...byDay.values()].map((ts) => {
+      const at = ts[0].paidOn ?? ts[0].createdAt
+      return { at, amount: Math.round(ts.reduce((s, t) => s + t.amount, 0) * 100) / 100, period: ts[0].period ?? loanPeriod(r, at).n, ids: ts.map((t) => t.id) }
+    })
+  })
+}
+
+/** A payment recorded late: a month from its period on was already carried over, or a later payment is already in. */
+export const recordedLate = (r: LoanRequest, txns: Txn[], at: number, period: number) =>
+  r.type !== 'savings' && (txns.some((t) => t.loanId === r.id && !t.voidedAt && t.carryover && (t.period ?? 0) >= period) || paymentHistory(r, txns).some((h) => h.at > at))
 
 /** Carryover: this month's interest still due (`due`) is added to the balance. */
 export const carryover = (r: LoanRequest, due = monthInterest(r)) => ({ balance: cents(balanceOf(r) + due), carryovers: (r.carryovers ?? 0) + 1 })

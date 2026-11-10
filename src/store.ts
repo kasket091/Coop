@@ -12,7 +12,7 @@ import {
 import { ADMIN_EMAIL, isBoardName, isFounderName, loginKey, recruiterOf, looksLikeStartingPassword, normalizeName, randomMemberEmail, startingPassword, startingPasswordFor } from './accounts'
 import { auth, db, firebaseConfig } from './firebase'
 import { ledgerFrom, monthRange, newestLiveForLoan, type Txn, type TxnKind } from './ledger'
-import { balanceOf, customPayment, interestDueNow, loanPeriod, periodInMonth, loanSnapshot, missedInterest, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
+import { balanceOf, customPayment, interestDueNow, loanPeriod, paymentHistory, periodInMonth, recordedLate, replayLoan, type HistoryPayment, loanSnapshot, missedInterest, savingsPayback, monthInterest, nextRef, payInterest, principalOf, refLabel, savingsLoan, upfrontFix, settleInterest, type LoanRequest, type LoanSnapshot } from './requests'
 import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { feeTopUps, payFromSavings } from './termination'
@@ -253,6 +253,8 @@ export async function voidTransaction(t: Txn, reason: string, year: number): Pro
     const before = group.find((x) => x.loanBefore)?.loanBefore
     if (t.loanId && before) restoreLoan(tx, t.loanId, before)
     for (const x of group) tx.update(doc(db, 'transactions', x.id), { voidedAt: Date.now(), voidReason: reason.trim() })
+    // voiding a recalculation puts back the entries it replaced
+    for (const id of group.flatMap((x) => x.restores ?? [])) tx.update(doc(db, 'transactions', id), { voidedAt: deleteField(), voidReason: deleteField() })
   })
   await rebuildLedger(t.memberId, year)
 }
@@ -298,13 +300,14 @@ export async function adminDecide(id: string, status: 'approved' | 'declined', y
  * can be voided) and updates the loan. Interest actually paid counts toward the dividend; carried interest
  * only once it is paid.
  */
-async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number | boolean>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean; month?: number; settles?: boolean; period?: number; paidOn?: number }[] }) {
+type LoanEntry = { kind: TxnKind; amount: number; note: string; carryover?: boolean; month?: number; settles?: boolean; period?: number; paidOn?: number; restores?: string[] }
+async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number | boolean>; entries: LoanEntry[]; voids?: string[] }) {
   let memberId = ''
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
     const r = { ...((await tx.get(ref)).data() as LoanRequest), id }
     if (r.status !== 'approved') throw new Error('This loan is no longer open.')
-    const { update, entries } = act(r)
+    const { update, entries, voids = [] } = act(r)
     // a paid-off Savings Loan: the missed savings it covered now count as saved (voiding the payoff undoes it)
     // (not when Pay For Savings already counted them)
     if (update.status === 'paid' && r.type === 'savings' && r.carriedMonth !== undefined && !r.savingsSettled && !update.savingsSettled) {
@@ -313,6 +316,7 @@ async function loanAction(id: string, year: number, act: (r: LoanRequest) => { u
     }
     const now = Date.now()
     tx.update(ref, update)
+    for (const v of voids) tx.update(doc(db, 'transactions', v), { voidedAt: now, voidReason: 'Recalculated: a payment for an earlier month was recorded' })
     for (const e of entries) {
       tx.set(doc(txns), txnRecord({ memberId: r.borrowerId, memberName: r.borrowerName, loanId: id, loanBefore: loanSnapshot(r), ...e }, year, now))
     }
@@ -382,6 +386,9 @@ export const loanCustomPayment = async (id: string, year: number, amount: number
     if (at < (r.decidedAt ?? r.createdAt) - 86_400_000) throw new Error(`This loan started ${dueDay(r.decidedAt ?? r.createdAt)}; choose that day or later.`)
     const period = forMonth ? periodInMonth(r, forMonth) : loanPeriod(r, at)
     if (!period) throw new Error('No interest is due on this loan in that month.')
+    // recorded late: an earlier month was already carried over, or a later payment is already in. Rebuild the loan
+    // from its capital and every payment in date order, so months paid in time carry nothing
+    if (recordedLate(r, lt, at, period.n)) return recalculated(r, lt, [...paymentHistory(r, lt), { at, amount, period: period.n }], at)
     const p = customPayment(r, amount, interestDueNow(r, lt, at, period))
     if ('error' in p) throw new Error(p.error)
     const toPrincipal = Math.round((amount - p.collected) * 100) / 100
@@ -396,6 +403,30 @@ export const loanCustomPayment = async (id: string, year: number, amount: number
       ],
     }
   })
+}
+
+/** The loan rebuilt from its history (replayLoan): old carryovers and payments voided, the rebuilt ones written. */
+function recalculated(r: LoanRequest, lt: Txn[], payments: (HistoryPayment & { ids?: string[] })[], newAt: number) {
+  const h = replayLoan(r, payments)
+  const old = [...new Set([...lt.filter((t) => !t.voidedAt && t.carryover).map((t) => t.id), ...payments.flatMap((p) => p.ids ?? [])])]
+  const monthOf = (ms: number) => new Date(ms + 8 * 3600_000).getUTCMonth()
+  const entries: LoanEntry[] = [{ kind: 'note', amount: 0, restores: old, note: `Loan ${refLabel(r)} recalculated from its payments in date order` }]
+  for (const s of h.steps) {
+    if (s.type === 'carryover') {
+      entries.push({ kind: 'note', amount: 0, carryover: true, period: s.period.n, month: monthOf(s.period.dueAt),
+        note: `Carryover: ${php(s.due)} interest due ${dueDay(s.period.dueAt)} was not paid; balance now ${php(s.balance)}` })
+      continue
+    }
+    const what = `${s.pay.at === newAt ? 'Custom payment' : 'Payment'} of ${php(s.pay.amount)} paid ${dueDay(s.pay.at)}`
+    const base = { period: s.pay.period, month: monthOf(s.pay.at), paidOn: s.pay.at }
+    if (s.collected > 0) entries.push({ ...base, kind: 'interest', amount: s.collected, note: `${what}: interest part; balance now ${php(s.balance)}` })
+    if (s.principalPaid > 0) entries.push({ ...base, kind: 'principal', amount: s.principalPaid, note: `${what}: off the balance; balance now ${php(s.balance)}` })
+  }
+  return {
+    voids: old, entries,
+    update: { balance: h.balance, principal: h.principal, carryovers: h.carryovers, customPayments: (r.customPayments ?? 0) + 1,
+      ...(h.paidOffAt ? { status: 'paid', paidAt: h.paidOffAt } : {}) },
+  }
 }
 
 /**

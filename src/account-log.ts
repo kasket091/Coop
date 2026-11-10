@@ -13,8 +13,8 @@ const LOAN: Record<LoanType, string> = {
   regular: 'Regular loan', flex: 'Flex loan', grocery: 'Grocery loan', appliance: 'Appliance loan',
   events: 'Special Events loan', deposit: 'Loan Against Deposit', savings: 'Savings Loan',
 }
-// shortcut: carryover entries keep their amounts only in the note text ("₱3,840 interest …; balance now ₱51,840");
-// store them as fields on the entry if these notes are ever reworded
+// shortcut: carryover entries keep their amounts, and recalculated payments their balance, only in the note text
+// ("₱3,840 interest …; balance now ₱51,840"); store them as fields on the entry if these notes are ever reworded
 const peso = (s?: string) => (s ? Number(s.replace(/,/g, '')) : undefined)
 const firstPeso = (note: string) => peso(note.match(/₱([\d,]+(?:\.\d+)?)/)?.[1])
 const balanceNow = (note: string) => peso(note.match(/balance now ₱([\d,]+(?:\.\d+)?)/)?.[1])
@@ -28,7 +28,10 @@ function label(t: Txn): string {
 }
 
 function loanLines(r: LoanRequest, txns: Txn[]): LogLine[] {
-  const live = txns.filter((t) => t.loanId === r.id && !t.voidedAt).sort((a, b) => a.createdAt - b.createdAt || (a.period ?? 0) - (b.period ?? 0))
+  // in one action: by period, a period's payment before its carryover, a payment's interest part before its loan part
+  const order = (t: Txn) => (t.kind === 'interest' ? 0 : t.kind === 'principal' ? 1 : 2)
+  const live = txns.filter((t) => t.loanId === r.id && !t.voidedAt && !t.restores)
+    .sort((a, b) => a.createdAt - b.createdAt || (a.period ?? 0) - (b.period ?? 0) || (a.paidOn ?? 0) - (b.paidOn ?? 0) || order(a) - order(b))
   // one admin action (or one daily run) writes its entries together; the next one's "before" is this one's "after"
   const groups: Txn[][] = []
   for (const t of live) {
@@ -43,17 +46,23 @@ function loanLines(r: LoanRequest, txns: Txn[]): LogLine[] {
   const capital: LogLine = {
     at: start,
     label: r.type === 'savings' && r.carriedMonth !== undefined ? `${MONTH[r.carriedMonth]} savings carried over${r.upfront ? ' (+10%)' : ''}` : 'Capital',
-    amount: r.amount, balance: groups[0]?.[0].loanBefore?.balance ?? end,
+    // a monthly loan starts at what was borrowed; a Savings Loan at what the carry-over left owed
+    amount: r.amount, balance: r.type === 'savings' ? groups[0]?.[0].loanBefore?.balance ?? end : r.amount,
   }
   const lines = [capital]
-  groups.forEach((g, i) => g.forEach((t, j) => {
-    const last = j === g.length - 1
-    const amount = t.carryover ? firstPeso(t.note) : t.amount > 0 ? t.amount : undefined
-    const balance = (t.carryover ? balanceNow(t.note) : undefined) ?? (last ? after(i) : undefined)
-    // a carryover belongs to the due date it was for, even when added later (a backdated loan gets several at once)
-    const at = t.carryover && t.period ? periodAt(r, t.period).dueAt : t.paidOn ?? t.createdAt
-    lines.push({ at, label: label(t), ...(amount !== undefined ? { amount } : {}), ...(balance !== undefined ? { balance } : {}) })
-  }))
+  groups.forEach((g, i) => {
+    for (let j = 0; j < g.length; j++) {
+      const t = g[j], next = g[j + 1]
+      const at = t.carryover && t.period ? periodAt(r, t.period).dueAt : t.paidOn ?? t.createdAt
+      // one payment's interest and loan parts are one line
+      const both = t.kind === 'interest' && next?.kind === 'principal' && (next.paidOn ?? next.createdAt) === at && next.period === t.period
+      const end = both ? next : t
+      if (both) j++
+      const amount = t.carryover ? firstPeso(t.note) : both ? Math.round((t.amount + next.amount) * 100) / 100 : t.amount > 0 ? t.amount : undefined
+      const balance = balanceNow(end.note) ?? (j === g.length - 1 ? after(i) : undefined)
+      lines.push({ at, label: both ? 'Interest and Loan Payment' : label(t), ...(amount !== undefined ? { amount } : {}), ...(balance !== undefined ? { balance } : {}) })
+    }
+  })
   return lines
 }
 
