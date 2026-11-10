@@ -69,21 +69,25 @@ function loanLines(r: LoanRequest, txns: Txn[]): LogLine[] {
 const MONTH_NAME = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
 /**
- * By month, newest month first. Within a month, entries are grouped (savings, then each loan by its ID), the group
- * with the latest entry first, and newest entry first within each group.
+ * By month, newest month first. Savings go under the month they are for (January's savings under January, even when
+ * recorded later or ahead); everything else under the month it happened. Within a month, entries are grouped
+ * (savings, and each loan by its ID), the group with the latest entry first, newest entry first within each group.
  */
 export function accountLog(loans: LoanRequest[], txns: Txn[]): LogSection[] {
-  const own = txns.filter((t) => !t.loanId && !t.voidedAt)
-    .map((t) => ({ key: 'savings', group: 'Savings', line: { at: t.createdAt, label: t.kind === 'savings' ? `${MONTH[t.month]} savings` : t.note, ...(t.amount > 0 ? { amount: t.amount } : {}) } as LogLine }))
+  const monthKey = (ms: number) => { const d = new Date(ms + 8 * 3600_000); return d.getUTCFullYear() * 12 + d.getUTCMonth() } // Manila
+  const own = txns.filter((t) => !t.loanId && !t.voidedAt).map((t) => ({
+    key: 'savings', group: 'Savings', month: t.kind === 'savings' ? t.cycle * 12 + t.month : monthKey(t.createdAt),
+    line: { at: t.createdAt, label: t.kind === 'savings' ? `${MONTH[t.month]} savings` : t.note, ...(t.amount > 0 ? { amount: t.amount } : {}) } as LogLine,
+  }))
   const loanLog = loans.filter((r) => r.status === 'approved' || r.status === 'paid')
-    .flatMap((r) => loanLines(r, txns).map((line) => ({ key: r.id, group: [r.ref, LOAN[r.type]].filter(Boolean).join(' · '), line })))
-  // newest first; entries saved together keep their order reversed, so the one carrying the balance stays on top
-  const all = [...own, ...loanLog].map((e, i) => ({ ...e, i })).sort((a, b) => b.line.at - a.line.at || b.i - a.i)
-  const sections: (LogSection & { keys: string[] })[] = []
+    .flatMap((r) => loanLines(r, txns).map((line) => ({ key: r.id, group: [r.ref, LOAN[r.type]].filter(Boolean).join(' · '), month: monthKey(line.at), line })))
+  // newest month first, then newest first; entries saved together keep their order reversed, so the one carrying
+  // the balance stays on top
+  const all = [...own, ...loanLog].map((e, i) => ({ ...e, i })).sort((a, b) => b.month - a.month || b.line.at - a.line.at || b.i - a.i)
+  const sections: (LogSection & { month: number; keys: string[] })[] = []
   for (const e of all) {
-    const title = MONTH_NAME[new Date(e.line.at + 8 * 3600_000).getUTCMonth()] // Manila
     let month = sections[sections.length - 1]
-    if (month?.title !== title) sections.push(month = { title, groups: [], keys: [] })
+    if (month?.month !== e.month) sections.push(month = { title: MONTH_NAME[e.month % 12], month: e.month, groups: [], keys: [] })
     const k = month.keys.indexOf(e.key)
     if (k >= 0) month.groups[k].lines.push(e.line)
     else { month.keys.push(e.key); month.groups.push({ title: e.group, lines: [e.line] }) }

@@ -71,3 +71,8 @@ it("a recalculated loan: one Interest and Loan Payment line per payment, its bal
   const may = accountLog([{ ...flex, balance: 35640.74 }], re)[0]
   expect(may).toEqual({ title: 'May', groups: [{ title: '3FL · Flex loan', lines: [{ at: day(4, 4), label: 'Interest and Loan Payment', amount: 24825.44, balance: 35640.74 }] }] })
 })
+
+it("savings go under the month they are for, not the day they were recorded", () => {
+  const janLate = t({ kind: 'savings', amount: 6000, month: 0, createdAt: day(10, 10) }) // January's, recorded Nov 10
+  expect(accountLog([], [janLate])).toEqual([{ title: 'January', groups: [{ title: 'Savings', lines: [{ at: day(10, 10), label: 'Jan savings', amount: 6000 }] }] }])
+})
