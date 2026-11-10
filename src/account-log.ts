@@ -1,5 +1,5 @@
-// A member's account log, built from their transactions: savings, then each loan from its capital, with every
-// carryover and payment and what was owed after it. Read-only: nothing here is typed in.
+// A member's account log, built from their transactions: savings and each loan from its capital, with every
+// carryover and payment and what was owed after it, by month, newest first. Read-only: nothing here is typed in.
 import type { Txn } from './ledger'
 import { balanceOf, type LoanRequest, type LoanType } from './requests'
 
@@ -53,14 +53,24 @@ function loanLines(r: LoanRequest, txns: Txn[]): LogLine[] {
   return lines
 }
 
-/** Savings (and other account entries) first, then each loan, oldest first. */
+const MONTH_NAME = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+/**
+ * One list by month, newest month first (and newest entry first within it): savings and every loan's entries
+ * together, each loan line starting with its reference (3FL) or, without one, its type.
+ */
 export function accountLog(loans: LoanRequest[], txns: Txn[]): LogSection[] {
-  const own = txns.filter((t) => !t.loanId && !t.voidedAt).sort((a, b) => a.createdAt - b.createdAt)
-  const savings: LogSection[] = own.length ? [{
-    title: 'Savings',
-    lines: own.map((t) => ({ at: t.createdAt, label: t.kind === 'savings' ? `${MONTH[t.month]} savings` : t.note, ...(t.amount > 0 ? { amount: t.amount } : {}) })),
-  }] : []
-  const shown = loans.filter((r) => r.status === 'approved' || r.status === 'paid')
-    .sort((a, b) => (a.decidedAt ?? a.createdAt) - (b.decidedAt ?? b.createdAt))
-  return [...savings, ...shown.map((r) => ({ title: [r.ref, LOAN[r.type]].filter(Boolean).join(' · '), lines: loanLines(r, txns) }))]
+  const own = txns.filter((t) => !t.loanId && !t.voidedAt)
+    .map((t): LogLine => ({ at: t.createdAt, label: t.kind === 'savings' ? `${MONTH[t.month]} savings` : t.note, ...(t.amount > 0 ? { amount: t.amount } : {}) }))
+  const loanLog = loans.filter((r) => r.status === 'approved' || r.status === 'paid')
+    .flatMap((r) => loanLines(r, txns).map((l) => ({ ...l, label: `${r.ref ?? LOAN[r.type]} ${l.label}` })))
+  // newest first; entries saved together keep their order reversed, so the one carrying the balance stays on top
+  const all = [...own, ...loanLog].map((l, i) => ({ l, i })).sort((a, b) => b.l.at - a.l.at || b.i - a.i).map((x) => x.l)
+  const sections: LogSection[] = []
+  for (const l of all) {
+    const title = MONTH_NAME[new Date(l.at + 8 * 3600_000).getUTCMonth()] // Manila
+    const last = sections[sections.length - 1]
+    if (last?.title === title) last.lines.push(l); else sections.push({ title, lines: [l] })
+  }
+  return sections
 }

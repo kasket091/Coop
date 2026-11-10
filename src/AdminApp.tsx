@@ -370,7 +370,7 @@ function AddTxn({ m, year, unpaid, onDone }: { m: StoredMember; year: number; un
 }
 
 /** Total unpaid loans: app loans approved but not yet paid, plus this month's interest still due. */
-/** Opens the member's account log: savings, then each loan from its capital, with every carryover and payment. */
+/** Opens the member's account log by month, newest first: savings and every loan's carryovers and payments. */
 function LogButton({ m, requests, txns }: { m: StoredMember; requests: LoanRequest[]; txns: Txn[] }) {
   const ref = useRef<HTMLDialogElement>(null)
   const [open, setOpen] = useState(false)

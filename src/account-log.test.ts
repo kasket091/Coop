@@ -22,25 +22,22 @@ const txns: Txn[] = [
   t({ kind: 'savings', amount: 6000, month: 0, createdAt: day(0, 5), note: '' }),
 ]
 
-it("lists savings, then each loan from its capital, with what each step left owed (voided entries left out)", () => {
-  const log = accountLog([flex], txns)
-  expect(log[0]).toEqual({ title: 'Savings', lines: [{ at: day(0, 5), label: 'Jan savings', amount: 6000 }] })
-  expect(log[1]).toEqual({
-    title: '3FL · Flex loan', lines: [
-      { at: MAR6, label: 'Capital', amount: 48000, balance: 48000 },
-      { at: day(3, 6), label: 'Carry Over Interest', amount: 3840, balance: 51840 },
-      { at: day(4, 2), label: 'Capital Payment', amount: 20678.44, balance: 31161.56 },
-    ],
-  })
+it('one list by month, newest first: savings and loan entries together (voided entries left out)', () => {
+  expect(accountLog([flex], txns)).toEqual([
+    { title: 'May', lines: [{ at: day(4, 2), label: '3FL Capital Payment', amount: 20678.44, balance: 31161.56 }] },
+    { title: 'April', lines: [{ at: day(3, 6), label: '3FL Carry Over Interest', amount: 3840, balance: 51840 }] },
+    { title: 'March', lines: [{ at: MAR6, label: '3FL Capital', amount: 48000, balance: 48000 }] },
+    { title: 'January', lines: [{ at: day(0, 5), label: 'Jan savings', amount: 6000 }] },
+  ])
 })
 
 it('a paid-off loan ends at nothing owed', () => {
   const paid = { ...flex, status: 'paid' } as LoanRequest
-  expect(accountLog([paid], txns)[1].lines.slice(-1)[0].balance).toBe(0)
+  expect(accountLog([paid], txns)[0].lines[0].balance).toBe(0)
 })
 
 it('a Savings Loan opens with the carried-over savings and the 10% added', () => {
   const sl = { ...flex, id: 'S1', type: 'savings', ref: '4SL', amount: 6000, balance: 6600, carriedMonth: 9, upfront: true } as LoanRequest
   const open = [t({ kind: 'savings', amount: 6000, loanId: 'S1', loanBefore: snap(6600, 'withdrawn'), note: 'October savings carried over as loan 4SL' })]
-  expect(accountLog([sl], open)[0]).toEqual({ title: '4SL · Savings Loan', lines: [{ at: MAR6, label: 'Oct savings carried over (+10%)', amount: 6000, balance: 6600 }] })
+  expect(accountLog([sl], open)).toEqual([{ title: 'March', lines: [{ at: MAR6, label: '4SL Oct savings carried over (+10%)', amount: 6000, balance: 6600 }] }])
 })
