@@ -13,6 +13,8 @@ export type Txn = {
   period?: number
   /** a Savings Loan was paid off: its carried amount now counts as saved */
   settles?: boolean
+  /** the day the money was paid, when recorded later (createdAt stays the day it was recorded) */
+  paidOn?: number
 }
 
 const cents = (x: number) => Math.round(x * 100) / 100

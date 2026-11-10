@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { accountLog } from './account-log'
 import { RECRUITS, startingPassword } from './accounts'
 import { backupSummary, parseBackup, type Backup } from './backup'
 import { Dashboard } from './Dashboard'
@@ -9,7 +10,7 @@ import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext
 import { advancePayments, carryoverMonths, isAdvance } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
-import { askNote, askText, askYes, tell } from './dialog'
+import { askText, askYes, tell } from './dialog'
 import { PushSetting } from './push'
 import { HandbookAdmin } from './handbook'
 import { coopSummary } from './rules'
@@ -18,7 +19,7 @@ import { Loading, Shell, type TabDef } from './Shell'
 import {
   addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, bookFeeTopUps, payForSavings, needsSavingsSettle, settlePaidSavingsLoans, setLoanDate, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, recomputeSummary, renameMember, resetLogin,
-  getNote, saveNote, signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
+  signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
   type StoredMember, type Summary, type Txn, rebuildAllLedgers, setRecruiter,
 } from './store'
 
@@ -204,7 +205,7 @@ function MemberDetail({ m, members, requests, txns, year, onBack, onOpen }: {
             ? <p className="alert" role="status">Terminated {new Date(m.terminated.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}. <button className="link inline" onClick={restore}>Restore account</button></p>
             : flag && <div className="alert" role="status"><b>Should be terminated:</b> {flagReason} <span className="pay-buttons" style={{ marginTop: 8 }}><button className="btn danger" onClick={terminate}>Terminate</button></span></div>}
           {!m.founder && m.heads > 0 && <RecruiterLine m={m} recruiter={recruiter} board={members.filter((x) => x.founder && x.heads > 0 && x.uid !== m.uid)} year={year} onOpen={onOpen} />}
-          <NoteButton m={m} />
+          <LogButton m={m} requests={requests} txns={txns} />
           <UnpaidLoans m={m} requests={requests} txns={txns} year={year} />
         </>} />
 
@@ -369,15 +370,31 @@ function AddTxn({ m, year, unpaid, onDone }: { m: StoredMember; year: number; un
 }
 
 /** Total unpaid loans: app loans approved but not yet paid, plus this month's interest still due. */
-/** Opens the admin's private note on this member in a text box; saving it empty removes it. */
-function NoteButton({ m }: { m: StoredMember }) {
-  const open = async () => {
-    try {
-      const text = await askNote(`Notes on ${m.name}`, await getNote(m.uid))
-      if (text !== null) await saveNote(m.uid, m.name, text)
-    } catch (err) { await tell((err as Error).message || "Couldn't save. Check your connection.") }
-  }
-  return <button className="note-btn" onClick={open} aria-label={`Notes on ${m.name}`} title="Create notes"><IconNote /></button>
+/** Opens the member's account log: savings, then each loan from its capital, with every carryover and payment. */
+function LogButton({ m, requests, txns }: { m: StoredMember; requests: LoanRequest[]; txns: Txn[] }) {
+  const ref = useRef<HTMLDialogElement>(null)
+  const [open, setOpen] = useState(false)
+  const log = open ? accountLog(requests.filter((r) => r.borrowerId === m.uid), txns) : []
+  return <>
+    <button className="note-btn" onClick={() => { setOpen(true); ref.current?.showModal() }} aria-label={`Account log for ${m.name}`} title="Account log"><IconNote /></button>
+    <dialog ref={ref} className="ask log" aria-labelledby={`log-${m.uid}`} onClose={() => setOpen(false)}>
+      <h2 id={`log-${m.uid}`}>Account log · {m.name}</h2>
+      {open && (log.length ? log.map((s, i) => (
+        <section key={i}>
+          <h3>{s.title}</h3>
+          <ul className="log-list">
+            {s.lines.map((l, j) => (
+              <li key={j}>
+                <span className="log-day">{dueDay(l.at)}</span><span>{l.label}</span>{l.amount !== undefined ? <b>{peso(l.amount)}</b> : <span />}
+                {l.balance !== undefined && <small>Balance {peso(l.balance)}</small>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )) : <p>Nothing recorded yet.</p>)}
+      <div className="actions"><button className="btn" onClick={() => ref.current?.close()}>Close</button></div>
+    </dialog>
+  </>
 }
 
 function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: LoanRequest[]; txns: Txn[]; year: number }) {

@@ -359,4 +359,12 @@ a.btn.wide { display: flex; text-align: center; }
 /* admin member page: notes icon above Unpaid loans, and its pop-up text box */
 .note-btn { display: grid; place-items: center; width: 44px; height: 44px; margin: 8px 0 0 auto; padding: 0; border: 1.5px solid var(--line); border-radius: var(--radius); background: transparent; color: var(--ink); cursor: pointer; }
 .note-btn svg { width: 22px; height: 22px; }
-.ask textarea { display: block; width: 100%; padding: 10px 12px; margin-bottom: 14px; border: 1.5px solid var(--line); border-radius: var(--radius); font: inherit; resize: vertical; }
+/* account log pop-up (notes icon) */
+.ask.log { width: min(560px, calc(100vw - 32px)); max-height: 85vh; }
+.log h2 { font-size: 18px; margin: 0 0 4px; }
+.log h3 { font-size: 15px; margin: 16px 0 4px; }
+.log-list { list-style: none; margin: 0; padding: 0; }
+.log-list li { display: grid; grid-template-columns: 52px 1fr auto; gap: 2px 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.log-list .log-day { color: var(--muted); }
+.log-list small { grid-column: 2 / -1; color: var(--muted); font-size: 13px; }
+.log .actions { margin-top: 16px; }

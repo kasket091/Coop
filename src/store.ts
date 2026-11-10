@@ -143,11 +143,6 @@ export const watchSummary = (cb: (s: Summary | null) => void) =>
 export const watchCycle = (cb: (year: number) => void) =>
   onSnapshot(doc(db, 'settings', 'cycle'), (s) => cb((s.data()?.year as number) ?? DEFAULT_CYCLE_YEAR))
 
-/** The admin's private note on a member (doc id = member uid). Members can't read them (firestore.rules). */
-export const getNote = async (uid: string) => ((await getDoc(doc(db, 'notes', uid))).data()?.text as string | undefined) ?? ''
-/** Saving empty text removes the note. */
-export const saveNote = (uid: string, name: string, text: string) =>
-  text.trim() ? setDoc(doc(db, 'notes', uid), { name, text: text.trim(), updatedAt: Date.now() }) : deleteDoc(doc(db, 'notes', uid))
 
 /** The handbook: a Google Drive (or any https) link the admin pastes; members open it in a new tab. */
 export type Handbook = { url: string; updatedAt: number } | null
@@ -303,7 +298,7 @@ export async function adminDecide(id: string, status: 'approved' | 'declined', y
  * can be voided) and updates the loan. Interest actually paid counts toward the dividend; carried interest
  * only once it is paid.
  */
-async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number | boolean>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean; month?: number; settles?: boolean; period?: number }[] }) {
+async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number | boolean>; entries: { kind: TxnKind; amount: number; note: string; carryover?: boolean; month?: number; settles?: boolean; period?: number; paidOn?: number }[] }) {
   let memberId = ''
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
@@ -389,11 +384,12 @@ export const loanCustomPayment = async (id: string, year: number, amount: number
     const toPrincipal = Math.round((amount - p.collected) * 100) / 100
     const what = `Custom payment of ${php(amount)}${dueDay(at) === dueDay(Date.now()) ? '' : ` paid ${dueDay(at)}`}`
     const m = paidDay.getUTCMonth()
+    const paidOn = dueDay(at) === dueDay(Date.now()) ? undefined : at
     return {
       update: { balance: p.balance, principal: p.principal, customPayments: (r.customPayments ?? 0) + 1, ...(p.paidOff ? { status: 'paid', paidAt: at } : {}) },
       entries: [
-        ...(p.collected > 0 ? [{ kind: 'interest' as const, amount: p.collected, period: period.n, month: m, note: `${what}: interest part` }] : []),
-        ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, period: period.n, month: m, note: `${what}: off the balance` }] : []),
+        ...(p.collected > 0 ? [{ kind: 'interest' as const, amount: p.collected, period: period.n, month: m, paidOn, note: `${what}: interest part` }] : []),
+        ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, period: period.n, month: m, paidOn, note: `${what}: off the balance` }] : []),
       ],
     }
   })
