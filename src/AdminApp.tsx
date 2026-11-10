@@ -550,6 +550,32 @@ function CustomPay({ r, txns, year, amount, onAmount, busy, onCancel, onRecord }
   )
 }
 
+/** Before approving: Proceed (today) or Custom date (an earlier day this year; its overdue interest is added). */
+function ApproveWhen({ r, year, direct, date, busy, onDate, onCancel, onApprove }: {
+  r: LoanRequest; year: number; direct: boolean; date?: string; busy: boolean
+  onDate: (d: string) => void; onCancel: () => void; onApprove: (at?: number) => void
+}) {
+  const at = date ? manilaNoon(date) : 0
+  const ok = !!at && date! >= `${year}-01-01` && date! <= ymd(Date.now())
+  return (
+    <div className="custom-pay">
+      <p className="note">Approve {r.borrowerName}'s {peso(r.amount)} loan{direct ? ' now, without waiting for the co-makers' : ''}?</p>
+      {date !== undefined && <>
+        <label htmlFor={`ad-${r.id}`}>Approval date</label>
+        <input id={`ad-${r.id}`} type="date" value={date} min={`${year}-01-01`} max={ymd(Date.now())} onChange={(e) => onDate(e.target.value)} />
+        <p className="note" role="status">{ok ? `Due dates follow ${dueDay(at)}; any interest already overdue is added at once.` : `Choose a date in ${year}, not in the future.`}</p>
+      </>}
+      <span className="pay-buttons">
+        {date === undefined
+          ? <><button className="btn" disabled={busy} onClick={() => onApprove()}>Proceed</button>
+              <button className="copy" disabled={busy} onClick={() => onDate(ymd(Date.now()))}>Custom date</button></>
+          : <button className="btn" disabled={busy || !ok} onClick={() => onApprove(date === ymd(Date.now()) ? undefined : at)}>Approve on this date</button>}
+        <button className="copy" onClick={onCancel}>Cancel</button>
+      </span>
+    </div>
+  )
+}
+
 function Confirm({ text, busy, onYes, onNo }: { text: string; busy: boolean; onYes: () => void; onNo: () => void }) {
   return <div><p>{text}</p><div className="actions"><button className="btn" disabled={busy} onClick={onYes}>Yes</button><button className="copy" onClick={onNo}>Cancel</button></div></div>
 }
@@ -562,9 +588,16 @@ function Requests({ requests, year }: { requests: LoanRequest[]; year: number })
   const shown = requests.filter((r) => r.borrowerName.toLowerCase().includes(q.trim().toLowerCase()))
   const pending = shown.filter((r) => r.status === 'pending')
   const closed = shown.filter((r) => r.status !== 'pending')
-  const decide = async (id: string, s: 'approved' | 'declined', direct = false) => {
+  // Approve asks first: Proceed (approved today) or Custom date (approved on an earlier day, for testing scenarios)
+  const [approving, setApproving] = useState<{ id: string; direct: boolean; date?: string } | null>(null)
+  const decide = async (id: string, s: 'approved' | 'declined', direct = false, at?: number) => {
     setBusy(id); setError(null)
-    try { await adminDecide(id, s, year, direct) } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
+    try {
+      await adminDecide(id, s, year, direct)
+      // an earlier day: its due dates follow, and interest already overdue is added (same as Edit date)
+      if (at) await setLoanDate(id, year, at)
+      setApproving(null)
+    } catch (err) { setError((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
   }
   return (
     <section>
@@ -580,13 +613,15 @@ function Requests({ requests, year }: { requests: LoanRequest[]; year: number })
           <RequestCard key={r.id} r={r}>
             <p className="asker">Borrower: <b>{r.borrowerName}</b>{r.overLimit ? ' · over their limit' : ''}{!r.comakerIds.length ? ' · no co-maker needed' : ''}</p>
             <div className="actions">
-              <button className="btn" disabled={!canAdminApprove(r) || busy === r.id} onClick={() => decide(r.id, 'approved')}>Approve loan</button>
+              <button className="btn" disabled={!canAdminApprove(r) || busy === r.id} onClick={() => setApproving({ id: r.id, direct: false })}>Approve loan</button>
               <button className="copy" disabled={busy === r.id} onClick={() => decide(r.id, 'declined')}>Decline</button>
-              <button className="btn-mini" disabled={busy === r.id}
-                onClick={async () => await askYes(`Approve ${r.borrowerName}'s ${peso(r.amount)} loan now, without waiting for the co-makers?`) && decide(r.id, 'approved', true)}>
+              <button className="btn-mini" disabled={busy === r.id} onClick={() => setApproving({ id: r.id, direct: true })}>
                 Walay Kurat Approve Dritso
               </button>
             </div>
+            {approving?.id === r.id && <ApproveWhen r={r} year={year} direct={approving.direct} date={approving.date} busy={busy === r.id}
+              onDate={(date) => setApproving({ ...approving, date })} onCancel={() => setApproving(null)}
+              onApprove={(at) => decide(r.id, 'approved', approving.direct, at)} />}
           </RequestCard>
         ))}
       </ul>
