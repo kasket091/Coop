@@ -45,3 +45,18 @@ it('a Savings Loan opens with the carried-over savings and the 10% added', () =>
   const open = [t({ kind: 'savings', amount: 6000, loanId: 'S1', loanBefore: snap(6600, 'withdrawn'), note: 'October savings carried over as loan 4SL' })]
   expect(accountLog([sl], open)).toEqual([{ title: 'March', groups: [{ title: '4SL · Savings Loan', lines: [{ at: MAR6, label: 'Oct savings carried over (+10%)', amount: 6000, balance: 6600 }] }] }])
 })
+
+it('carryovers added together (a backdated loan) go under the due dates they were for, in order', () => {
+  // approved Mar 6, recorded Nov 10: Apr 6 and May 6 carried over in one go
+  const NOV10 = day(10, 10)
+  const back = [
+    t({ loanId: 'L1', carryover: true, period: 2, loanBefore: snap(48000), createdAt: NOV10, note: 'Carryover: ₱4,147.20 interest due May 6 was not paid; balance now ₱55,987.20' }),
+    t({ loanId: 'L1', carryover: true, period: 1, loanBefore: snap(48000), createdAt: NOV10, note: 'Carryover: ₱3,840 interest due Apr 6 was not paid; balance now ₱51,840' }),
+  ]
+  const at = (m: number, d: number) => Date.UTC(2026, m, d) - 8 * 3600_000 // midnight in Manila
+  expect(accountLog([{ ...flex, balance: 55987.2 }], back).map((s) => [s.title, s.groups[0].lines.map((l) => [l.at, l.balance])])).toEqual([
+    ['May', [[at(4, 6), 55987.2]]],
+    ['April', [[at(3, 6), 51840]]],
+    ['March', [[MAR6, 48000]]],
+  ])
+})

@@ -1,7 +1,7 @@
 // A member's account log, built from their transactions: savings and each loan from its capital, with every
 // carryover and payment and what was owed after it, by month, newest first. Read-only: nothing here is typed in.
 import type { Txn } from './ledger'
-import { balanceOf, type LoanRequest, type LoanType } from './requests'
+import { balanceOf, periodAt, type LoanRequest, type LoanType } from './requests'
 
 export type LogLine = { at: number; label: string; amount?: number; balance?: number }
 export type LogGroup = { title: string; lines: LogLine[] }
@@ -28,7 +28,7 @@ function label(t: Txn): string {
 }
 
 function loanLines(r: LoanRequest, txns: Txn[]): LogLine[] {
-  const live = txns.filter((t) => t.loanId === r.id && !t.voidedAt).sort((a, b) => a.createdAt - b.createdAt)
+  const live = txns.filter((t) => t.loanId === r.id && !t.voidedAt).sort((a, b) => a.createdAt - b.createdAt || (a.period ?? 0) - (b.period ?? 0))
   // one admin action (or one daily run) writes its entries together; the next one's "before" is this one's "after"
   const groups: Txn[][] = []
   for (const t of live) {
@@ -50,7 +50,9 @@ function loanLines(r: LoanRequest, txns: Txn[]): LogLine[] {
     const last = j === g.length - 1
     const amount = t.carryover ? firstPeso(t.note) : t.amount > 0 ? t.amount : undefined
     const balance = (t.carryover ? balanceNow(t.note) : undefined) ?? (last ? after(i) : undefined)
-    lines.push({ at: t.paidOn ?? t.createdAt, label: label(t), ...(amount !== undefined ? { amount } : {}), ...(balance !== undefined ? { balance } : {}) })
+    // a carryover belongs to the due date it was for, even when added later (a backdated loan gets several at once)
+    const at = t.carryover && t.period ? periodAt(r, t.period).dueAt : t.paidOn ?? t.createdAt
+    lines.push({ at, label: label(t), ...(amount !== undefined ? { amount } : {}), ...(balance !== undefined ? { balance } : {}) })
   }))
   return lines
 }

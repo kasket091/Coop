@@ -140,7 +140,7 @@ export type LoanPeriod = { n: number; startsAt: number; dueAt: number; endsAt: n
  * is every loan's last due date. A Savings Loan follows its missed month instead, like savings: its upfront 10% is
  * that month's interest, and each later month's is due by that month's 7th, through December.
  */
-function periodAt(r: LoanRequest, n: number): LoanPeriod {
+export function periodAt(r: LoanRequest, n: number): LoanPeriod {
   const s = new Date((r.decidedAt ?? r.createdAt) + PH) // Manila wall clock, read with UTC getters
   const y = s.getUTCFullYear()
   const deadline = Date.UTC(y, 11, 15) - PH
