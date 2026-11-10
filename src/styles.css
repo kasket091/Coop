@@ -363,6 +363,7 @@ a.btn.wide { display: flex; text-align: center; }
 .ask.log { width: min(560px, calc(100vw - 32px)); max-height: 85vh; }
 .log h2 { font-size: 18px; margin: 0 0 4px; }
 .log h3 { font-size: 15px; margin: 16px 0 4px; }
+.log-group h4 { margin: 10px 0 2px; font-size: 13px; font-weight: 700; color: var(--navy); }
 .log-list { list-style: none; margin: 0; padding: 0; }
 .log-list li { display: grid; grid-template-columns: 52px 1fr auto; gap: 2px 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
 .log-list .log-day { color: var(--muted); }

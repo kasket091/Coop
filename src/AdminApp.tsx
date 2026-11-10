@@ -370,7 +370,7 @@ function AddTxn({ m, year, unpaid, onDone }: { m: StoredMember; year: number; un
 }
 
 /** Total unpaid loans: app loans approved but not yet paid, plus this month's interest still due. */
-/** Opens the member's account log by month, newest first: savings and every loan's carryovers and payments. */
+/** Opens the member's account log by month, newest first, each month's entries grouped by loan ID (and savings). */
 function LogButton({ m, requests, txns }: { m: StoredMember; requests: LoanRequest[]; txns: Txn[] }) {
   const ref = useRef<HTMLDialogElement>(null)
   const [open, setOpen] = useState(false)
@@ -382,14 +382,19 @@ function LogButton({ m, requests, txns }: { m: StoredMember; requests: LoanReque
       {open && (log.length ? log.map((s, i) => (
         <section key={i}>
           <h3>{s.title}</h3>
-          <ul className="log-list">
-            {s.lines.map((l, j) => (
-              <li key={j}>
-                <span className="log-day">{dueDay(l.at)}</span><span>{l.label}</span>{l.amount !== undefined ? <b>{peso(l.amount)}</b> : <span />}
-                {l.balance !== undefined && <small>Balance {peso(l.balance)}</small>}
-              </li>
-            ))}
-          </ul>
+          {s.groups.map((g, k) => (
+            <div key={k} className="log-group">
+              <h4>{g.title}</h4>
+              <ul className="log-list">
+                {g.lines.map((l, j) => (
+                  <li key={j}>
+                    <span className="log-day">{dueDay(l.at)}</span><span>{l.label}</span>{l.amount !== undefined ? <b>{peso(l.amount)}</b> : <span />}
+                    {l.balance !== undefined && <small>Balance {peso(l.balance)}</small>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </section>
       )) : <p>Nothing recorded yet.</p>)}
       <div className="actions"><button className="btn" onClick={() => ref.current?.close()}>Close</button></div>
