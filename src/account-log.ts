@@ -1,6 +1,7 @@
 // A member's account log, built from their transactions: savings and each loan from its capital, with every
 // carryover and payment and what was owed after it, by month, newest first. Read-only: nothing here is typed in.
 import type { Txn } from './ledger'
+import type { PaymentRequest } from './payments'
 import { balanceOf, periodAt, type LoanRequest, type LoanType } from './requests'
 
 export type LogLine = { at: number; label: string; amount?: number; balance?: number }
@@ -73,7 +74,7 @@ const MONTH_NAME = ['January', 'February', 'March', 'April', 'May', 'June', 'Jul
  * under January, even when recorded later or ahead); everything else under the month it happened. Within a month, entries are grouped
  * (savings, and each loan by its ID), the group with the latest entry first, newest entry first within each group.
  */
-export function accountLog(loans: LoanRequest[], txns: Txn[]): LogSection[] {
+export function accountLog(loans: LoanRequest[], txns: Txn[], payments: PaymentRequest[] = []): LogSection[] {
   const monthKey = (ms: number) => { const d = new Date(ms + 8 * 3600_000); return d.getUTCFullYear() * 12 + d.getUTCMonth() } // Manila
   const own = txns.filter((t) => !t.loanId && !t.voidedAt).map((t) => ({
     key: 'savings', group: 'Savings', month: t.kind === 'savings' ? t.cycle * 12 + t.month : monthKey(t.createdAt),
@@ -85,9 +86,14 @@ export function accountLog(loans: LoanRequest[], txns: Txn[]): LogSection[] {
       // a savings carry-over (its opening line) goes under the month whose savings it carried, like savings do
       month: i === 0 && r.type === 'savings' && r.carriedMonth !== undefined ? Math.floor(monthKey(line.at) / 12) * 12 + r.carriedMonth : monthKey(line.at),
     })))
+  // a member's payment the admin rejected (approved ones show through their transactions; waiting ones aren't history)
+  const groupOf = (id?: string) => { const r = loans.find((x) => x.id === id); return r ? { key: r.id, group: [r.ref, LOAN[r.type]].filter(Boolean).join(' · ') } : { key: 'savings', group: 'Savings' } }
+  const rejected = payments.filter((p) => p.status === 'rejected' && p.decidedAt).map((p) => ({
+    ...groupOf(p.loanId), month: monthKey(p.decidedAt!), line: { at: p.decidedAt!, label: `Payment request rejected: ${p.reason ?? ''}`, amount: p.amount } as LogLine,
+  }))
   // newest month first, then newest first; entries saved together keep their order reversed, so the one carrying
   // the balance stays on top
-  const all = [...own, ...loanLog].map((e, i) => ({ ...e, i })).sort((a, b) => b.month - a.month || b.line.at - a.line.at || b.i - a.i)
+  const all = [...own, ...loanLog, ...rejected].map((e, i) => ({ ...e, i })).sort((a, b) => b.month - a.month || b.line.at - a.line.at || b.i - a.i)
   const sections: (LogSection & { month: number; keys: string[] })[] = []
   for (const e of all) {
     let month = sections[sections.length - 1]

@@ -10,6 +10,7 @@ import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext
 import { advancePayments, carryoverMonths, isAdvance, savingsEntry } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
+import { approvalPreview, type PaymentRequest } from './payments'
 import { askText, askYes, tell } from './dialog'
 import { PushSetting } from './push'
 import { HandbookAdmin } from './handbook'
@@ -19,6 +20,7 @@ import { Loading, Shell, type TabDef } from './Shell'
 import {
   addMember, addTransaction, adminDecide, clearDatabase, ensureRefs, exportDatabase, restoreDatabase, carryOverSavings, fixSavingsLoans, restoreMember, terminateMember, bookFeeTopUps, payForSavings, needsSavingsSettle, settlePaidSavingsLoans, setLoanDate, deleteMember, ledgerMonth, loanCustomPayment, markLoanPaid,
   payLoanInterest, recomputeSummary, renameMember, resetLogin,
+  approvePaymentRequest, getPaymentProof, rejectPaymentRequest, watchMyPaymentRequests, watchPaymentRequests,
   signOutUser, startCycle, voidTransaction, watchAllMembers, watchAllRequests, watchAllTransactions, watchSummary,
   type StoredMember, type Summary, type Txn, rebuildAllLedgers, setRecruiter,
 } from './store'
@@ -31,6 +33,7 @@ export function AdminApp({ year }: { year: number }) {
   const [requests, setRequests] = useState<LoanRequest[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
   const [txns, setTxns] = useState<Txn[]>([])
+  const [payments, setPayments] = useState<PaymentRequest[]>([])
   const [tab, setTab] = useState<Tab>('members')
   // tapping Members again while on it goes back to the member list (a fresh Members screen)
   const [membersKey, setMembersKey] = useState(0)
@@ -38,6 +41,7 @@ export function AdminApp({ year }: { year: number }) {
   useEffect(() => watchAllRequests(setRequests), [])
   useEffect(() => watchSummary(setSummary), [])
   useEffect(() => watchAllTransactions(setTxns), [])
+  useEffect(() => watchPaymentRequests(setPayments), [])
   // accounts terminated before the fee counted Savings Loans paid off: the rest of the 20% is booked once
   useEffect(() => { if (members && txns.length) bookFeeTopUps(members, txns, year).catch(() => {}) }, [members, txns, year])
 
@@ -55,7 +59,7 @@ export function AdminApp({ year }: { year: number }) {
       <p className="admin-flag">Admin</p>
       {!members ? <Loading />
         : tab === 'members' ? <Members key={membersKey} members={members} requests={requests} txns={txns} year={year} />
-        : tab === 'loans' ? <LoansAdmin requests={requests} txns={txns} year={year} />
+        : tab === 'loans' ? <LoansAdmin requests={requests} txns={txns} payments={payments} members={members} year={year} />
         : tab === 'requests' ? <Requests requests={requests} year={year} />
         : tab === 'dashboard' ? <Dashboard members={members} txns={txns} year={year} />
         : <CoopAdmin members={members} summary={summary} year={year} />}
@@ -377,7 +381,9 @@ function AddTxn({ m, year, unpaid, onDone }: { m: StoredMember; year: number; un
 function LogButton({ m, requests, txns }: { m: StoredMember; requests: LoanRequest[]; txns: Txn[] }) {
   const ref = useRef<HTMLDialogElement>(null)
   const [open, setOpen] = useState(false)
-  const log = open ? accountLog(requests.filter((r) => r.borrowerId === m.uid), txns) : []
+  const [payments, setPayments] = useState<PaymentRequest[]>([])
+  useEffect(() => (open ? watchMyPaymentRequests(m.uid, setPayments) : undefined), [open, m.uid])
+  const log = open ? accountLog(requests.filter((r) => r.borrowerId === m.uid), txns, payments) : []
   return <>
     <button className="note-btn" onClick={() => { setOpen(true); ref.current?.showModal() }} aria-label={`Account log for ${m.name}`} title="Account log"><IconClock /></button>
     <dialog ref={ref} className="ask log" aria-labelledby={`log-${m.uid}`} onClose={() => setOpen(false)}>
@@ -469,6 +475,70 @@ function UnpaidLoans({ m, requests, txns, year }: { m: StoredMember; requests: L
         ) })}
       </ul>
       {error && <p className="alert" role="alert">{error}</p>}
+    </div>
+  )
+}
+
+const CHOICE: Record<string, string> = { interest: 'Interest', full: 'Full payment', custom: 'Custom Payment' }
+
+/** Payment Request tab: members' payments with their screenshots; Approve records them, Reject tells the member why. */
+function PaymentRequestsPanel({ list, loans, txns, members, year, search }: {
+  list: PaymentRequest[]; loans: LoanRequest[]; txns: Txn[]; members: StoredMember[]; year: number; search: string
+}) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [proofs, setProofs] = useState<Record<string, string | null>>({})
+  const pending = list.filter((p) => p.status === 'pending')
+  const decided = list.filter((p) => p.status !== 'pending')
+  const run = async (id: string, fn: () => Promise<unknown>) => {
+    setBusy(id)
+    try { await fn() } catch (err) { await tell((err as Error).message || "Couldn't save. Check your connection.") } finally { setBusy(null) }
+  }
+  // loaded only when asked for, so the list doesn't download every screenshot; tapping again hides it
+  const showProof = async (id: string) => {
+    try { setProofs({ ...proofs, [id]: proofs[id] ? null : (await getPaymentProof(id)) ?? null }) } catch { await tell("Couldn't load the screenshot. Check your connection.") }
+  }
+  const what = (p: PaymentRequest) => p.kind === 'savings' ? `${MONTHS[p.month ?? 0]} savings`
+    : `${p.loanLabel} · ${CHOICE[p.choice ?? 'custom']}${p.months?.length ? ` (${p.months.join(', ')})` : ''}`
+  return (
+    <div className="section">
+      {!pending.length && <p className="note">{search ? `No payments waiting for “${search}”.` : 'No payments waiting. When a member taps Pay Now or Pay savings it appears here with their screenshot.'}</p>}
+      <ul className="requests">
+        {pending.map((p) => {
+          const m = members.find((x) => x.uid === p.memberId)
+          const loan = loans.find((r) => r.id === p.loanId)
+          const preview = approvalPreview(p, loan, txns.filter((t) => t.memberId === p.memberId))
+          const another = p.loanId && pending.some((o) => o.id !== p.id && o.loanId === p.loanId)
+          return (
+            <li key={p.id} className="request">
+              <div className="request-head"><b>{p.memberName}</b><b>{peso(p.amount)}</b></div>
+              <p className="note">{what(p)} · sent {dueDay(p.createdAt)}</p>
+              {another && <p className="alert">Another payment for this loan is waiting too.</p>}
+              <button className="link" onClick={() => showProof(p.id)}>{proofs[p.id] ? 'Hide screenshot' : 'Show screenshot'}</button>
+              {proofs[p.id] && <img className="proof-full" src={proofs[p.id]!} alt={`${p.memberName}'s payment screenshot`} />}
+              <p className={'error' in preview ? 'alert' : 'note'} role="status">
+                {'error' in preview ? `${preview.error} Reject it, or record it yourself.`
+                  : 'savings' in preview ? `Approving records ${peso(p.amount)} as ${MONTHS[p.month ?? 0]} savings.`
+                  : `Approving records ${peso(p.amount)} as of ${dueDay(p.createdAt)}; new balance ${peso(preview.balance)}.`}
+              </p>
+              <div className="actions">
+                <button className="btn" disabled={busy === p.id || 'error' in preview || !m}
+                  onClick={async () => m && await askYes(`Record ${p.memberName}'s ${peso(p.amount)} payment? Check GCash or the bank first.`, 'Approve') && run(p.id, () => approvePaymentRequest(p, m, year))}>Approve</button>
+                <button className="copy" disabled={busy === p.id}
+                  onClick={async () => { const reason = await askText(`Why isn't ${p.memberName}'s ${peso(p.amount)} payment accepted? They will see this.`); if (reason) await run(p.id, () => rejectPaymentRequest(p.id, reason)) }}>Reject</button>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+      {decided.length > 0 && (
+        <div className="section"><h2>Decided</h2>
+          <ul className="rows panel">
+            {decided.map((p) => (
+              <li key={p.id}><span>{p.memberName} · {what(p)}<small className="advance-sub">{p.status === 'approved' ? 'Approved' : `Rejected: ${p.reason}`} {p.decidedAt ? dueDay(p.decidedAt) : ''}</small></span><b>{peso(p.amount)}</b></li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }
@@ -668,8 +738,8 @@ function Requests({ requests, year }: { requests: LoanRequest[]; year: number })
 }
 
 // ---------- loans: active and closed ----------
-function LoansAdmin({ requests, txns, year }: { requests: LoanRequest[]; txns: Txn[]; year: number }) {
-  const [view, setView] = useState<'advance' | 'active' | 'closed'>('active')
+function LoansAdmin({ requests, txns, payments, members, year }: { requests: LoanRequest[]; txns: Txn[]; payments: PaymentRequest[]; members: StoredMember[]; year: number }) {
+  const [view, setView] = useState<'advance' | 'active' | 'payments' | 'closed'>('active')
   const [q, setQ] = useState('')
   // loans approved before references existed get theirs (1FL, 2FL, …) the first time this tab opens
   // loan references for this cycle (13SL #14): numbers every loan once under the scheme, then only new ones
@@ -693,11 +763,13 @@ function LoansAdmin({ requests, txns, year }: { requests: LoanRequest[]; txns: T
       <div className="segmented" role="tablist" aria-label="Loan category">
         <button role="tab" aria-selected={view === 'advance'} onClick={() => setView('advance')}><b className="seg-count">{advance.length}</b>Advance Payment</button>
         <button role="tab" aria-selected={view === 'active'} onClick={() => setView('active')}><b className="seg-count">{active.length}</b>Active Loans</button>
+        <button role="tab" aria-selected={view === 'payments'} onClick={() => setView('payments')}><b className="seg-count">{payments.filter((p) => p.status === 'pending').length}</b>Payment Request</button>
         <button role="tab" aria-selected={view === 'closed'} onClick={() => setView('closed')}><b className="seg-count">{closed.length}</b>Closed Loans</button>
       </div>
       <div className="field"><label htmlFor="lq">Search by name</label>
         <input id="lq" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" /></div>
-      {view === 'advance' ? <AdvanceList list={advanceShown} total={advance.reduce((t, x) => t + x.amount, 0)} search={q.trim()} />
+      {view === 'payments' ? <PaymentRequestsPanel list={payments.filter((p) => match(p.memberName))} loans={requests} txns={txns} members={members} year={year} search={q.trim()} />
+        : view === 'advance' ? <AdvanceList list={advanceShown} total={advance.reduce((t, x) => t + x.amount, 0)} search={q.trim()} />
         : !list.length ? <p className="note section">{q.trim() ? `No ${view} loans for “${q.trim()}”.` : view === 'active' ? 'No active loans.' : 'No closed loans yet.'}</p> : (
         <ul className="requests">
           {list.map((r) => (

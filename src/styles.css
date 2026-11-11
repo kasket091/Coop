@@ -380,3 +380,7 @@ a.btn.wide { display: flex; text-align: center; }
 .pay-loans summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; color: var(--navy); cursor: pointer; }
 .ask .field input[type="file"] { min-height: 0; padding: 10px 0; border: 0; }
 .proof-thumb { display: block; max-width: 140px; max-height: 200px; margin-top: 8px; border-radius: var(--radius); border: 1px solid var(--line); }
+/* admin Payment Request tab */
+.proof-full { display: block; width: 100%; max-width: 420px; margin: 8px 0; border-radius: var(--radius); border: 1px solid var(--line); }
+/* four Loans segments: two rows on a phone */
+@media (max-width: 480px) { .segmented:has(> :nth-child(4)) { grid-auto-flow: row; grid-template-columns: 1fr 1fr; } }

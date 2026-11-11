@@ -2,6 +2,7 @@ import { expect, it } from 'vitest'
 import { accountLog } from './account-log'
 import type { Txn } from './ledger'
 import type { LoanRequest } from './requests'
+import type { PaymentRequest } from './payments'
 
 const MAR6 = Date.UTC(2026, 2, 6, 4)
 const day = (m: number, d: number) => Date.UTC(2026, m, d, 4)
@@ -80,4 +81,14 @@ it("savings go under the month they are for, not the day they were recorded", ()
 it('a savings carry-over goes under the month whose savings it carried, not the day it was made', () => {
   const sl = { ...flex, id: 'S1', type: 'savings', ref: '4SL', amount: 6000, balance: 6600, carriedMonth: 9, upfront: true, decidedAt: day(10, 10), createdAt: day(10, 10) } as LoanRequest
   expect(accountLog([sl], []).map((s) => s.title)).toEqual(['October'])
+})
+
+it("a rejected payment request shows under its month, in its loan's group (or Savings); waiting or approved ones add nothing", () => {
+  const p = (over: object) => ({ id: 'p', memberId: 'me', memberName: 'Ana', kind: 'loan', loanId: 'L1', amount: 500, createdAt: day(5, 1), status: 'rejected', decidedAt: day(5, 3), reason: 'wrong amount', ...over }) as PaymentRequest
+  const log = accountLog([flex], [], [p({}), p({ id: 'q', kind: 'savings', loanId: undefined, month: 5, reason: 'no screenshot' }), p({ id: 'w', status: 'pending' }), p({ id: 'a', status: 'approved' })])
+  const june = log.find((s) => s.title === 'June')!
+  expect(june.groups).toEqual([
+    { title: 'Savings', lines: [{ at: day(5, 3), label: 'Payment request rejected: no screenshot', amount: 500 }] },
+    { title: '3FL · Flex loan', lines: [{ at: day(5, 3), label: 'Payment request rejected: wrong amount', amount: 500 }] },
+  ])
 })
