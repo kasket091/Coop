@@ -107,7 +107,11 @@ Approved payments appear through their transactions, as now. Rejected requests a
   storage for about 3 years; screenshots older than a cycle can be deleted later if needed.
 - Rules: a member can create requests and proofs for themselves only (memberId = their uid, status 'pending'), read
   their own, and withdraw (delete) their own while pending; only the admin can approve/reject or read everyone's.
-- Both collections go in the backup list.
+- **Deleted with the cycle (Dave):** starting a new cycle and **Clear database** both delete every payment request
+  and every screenshot, the same way they delete members, loans and transactions.
+- Backups: `paymentRequests` goes in the backup file; screenshots (`paymentProofs`) don't, so backup files stay small.
+  **Builder's call (Claude):** a restore brings back the requests without their screenshots (the money is already in
+  the transactions); Clear database deletes the screenshots separately since they aren't in the backup list.
 
 ## Edge cases
 
