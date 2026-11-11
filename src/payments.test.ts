@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Txn } from './ledger'
-import { approvalPreview, choiceAmount, choicePreview, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PaymentRequest } from './payments'
+import { approvalDates, approvalPreview, choiceAmount, previewText, savingsAlreadyIn, choicePreview, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PaymentRequest } from './payments'
 import type { LoanRequest } from './requests'
 
 const at = (m: number, d: number, h = 12) => Date.UTC(2026, m, d, h - 8) // h o'clock in Manila
@@ -89,5 +89,29 @@ describe('what Approve will record, worked out before the admin taps it', () => 
   })
   it('savings: nothing to work out', () => {
     expect(approvalPreview(req({ kind: 'savings', loanId: undefined, month: 10, amount: 6000 }), undefined, [])).toEqual({ savings: true })
+  })
+})
+
+describe('review fixes', () => {
+  const req = (over: Partial<PaymentRequest> = {}): PaymentRequest => ({
+    id: 'p1', memberId: 'me', memberName: 'Ana', kind: 'loan', loanId: 'L1', choice: 'custom', amount: 1000, createdAt: at(4, 4), status: 'pending', ...over,
+  })
+  it("a payment sent after Dec 15 still counts for the loan's last period, so Approve doesn't fail", () => {
+    const dec17 = at(11, 17)
+    expect(approvalDates(req({ createdAt: dec17 }), flex)).toEqual({ at: dec17, forAt: at(11, 15, 0) })
+    expect(approvalDates(req(), flex)).toEqual({ at: at(4, 4), forAt: at(4, 4) })
+  })
+  it("the member's preview says when unpaid interest goes into the balance, like the admin's form", () => {
+    const p = choicePreview(flex, [], 1000, at(4, 4))
+    expect(previewText(p as Exclude<typeof p, { error: string }>, 1000, 4478.98)).toBe("₱1,000 this month's interest + ₱0 off the loan · new balance ₱59,466.18 (₱3,478.98 unpaid interest added to the balance)")
+    const big = choicePreview(flex, [], 24825.44, at(4, 4))
+    expect(previewText(big as Exclude<typeof big, { error: string }>, 24825.44, 4478.98)).toBe('₱7,987.20 missed interest + ₱16,838.24 off the loan · new balance ₱31,161.76')
+  })
+  it('a savings request for a month that is already paid or carried over is flagged before approving', () => {
+    const m = { heads: 2, paid: Array(12).fill(0), carried: Array(12).fill(0) }
+    const s = req({ kind: 'savings', loanId: undefined, month: 10, amount: 1000 })
+    expect(savingsAlreadyIn(s, m)).toBe('')
+    expect(savingsAlreadyIn(s, { ...m, paid: m.paid.map((x, i) => (i === 10 ? 1000 : x)) })).toBe('November savings are already fully paid; approving adds ₱1,000 more.')
+    expect(savingsAlreadyIn(s, { ...m, carried: m.carried.map((x, i) => (i === 10 ? 1000 : x)) })).toBe('November savings were carried over into a Savings Loan; approving adds ₱1,000 more. Use Pay For Savings on that loan instead.')
   })
 })

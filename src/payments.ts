@@ -2,8 +2,9 @@
 // costs. Pure: the admin's approval records them with the existing loan and savings logic (store.ts).
 import { firstPeso } from './account-log'
 import type { Txn } from './ledger'
-import { balanceOf, customPayment, interestDueNow, loanPeriod, paymentHistory, periodAt, principalOf, recordedLate, replayLoan, waivedDue, type LoanRequest } from './requests'
-import { DUE_DAY } from './rules'
+import { peso } from './format'
+import { balanceOf, customPayment, interestDueNow, loanDeadline, loanPeriod, type CustomPayment, paymentHistory, periodAt, principalOf, recordedLate, replayLoan, waivedDue, type LoanRequest } from './requests'
+import { DUE_DAY, monthlyDue } from './rules'
 
 export type PayChoice = 'interest' | 'full' | 'custom'
 export type PaymentRequest = {
@@ -60,11 +61,34 @@ export function approvalPreview(p: PaymentRequest, loan: LoanRequest | undefined
   if (!loan) return { error: 'This loan no longer exists.' }
   if (loan.status === 'paid') return { error: 'This loan is already paid off.' }
   if (loan.status !== 'approved') return { error: 'This loan is no longer open.' }
-  const period = loanPeriod(loan, p.createdAt)
+  const period = loanPeriod(loan, approvalDates(p, loan).forAt)
   if (recordedLate(loan, txns, p.createdAt, period.n)) {
     try { return { balance: replayLoan(loan, [...paymentHistory(loan, txns), { at: p.createdAt, amount: p.amount, period: period.n }]).balance } }
     catch (e) { return { error: (e as Error).message } }
   }
   const r = customPayment(loan, p.amount, waivedDue(p.amount, interestDueNow(loan, txns, p.createdAt, period)))
   return 'error' in r ? r : { balance: r.balance }
+}
+
+/**
+ * The dates approval records a loan payment with: the day it was sent, counted for the period running then, or the
+ * loan's last (Dec 15) period when sent after it, so Approve doesn't fail on a late payment.
+ */
+export const approvalDates = (p: PaymentRequest, loan: LoanRequest) => ({ at: p.createdAt, forAt: Math.min(p.createdAt, loanDeadline(loan)) })
+
+/** The split of a payment, in words (the member's pop-up and the admin's Advance/Custom Payment say the same). */
+export function previewText(p: Exclude<CustomPayment, { error: string }>, amount: number, due: number): string {
+  const short = cents(waivedDue(amount, due) - p.interestPart)
+  return `${p.interestPart > 0 ? `${peso(p.interestPart)} this month's interest + ` : ''}${p.collected > p.interestPart ? `${peso(cents(p.collected - p.interestPart))} missed interest + ` : ''}`
+    + `${peso(Math.max(0, cents(amount - p.collected)))} off the loan · ${p.paidOff ? 'loan fully paid' : `new balance ${peso(p.balance)}`}`
+    + (short > 0 ? ` (${peso(short)} unpaid interest added to the balance)` : '')
+}
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+/** Why a savings request might double-count its month (already paid, or carried over into a Savings Loan), or ''. */
+export function savingsAlreadyIn(p: PaymentRequest, m: { heads: number; paid: number[]; carried?: number[] }): string {
+  const i = p.month ?? 0
+  if ((m.carried?.[i] ?? 0) > 0) return `${MONTH_NAMES[i]} savings were carried over into a Savings Loan; approving adds ${peso(p.amount)} more. Use Pay For Savings on that loan instead.`
+  if ((m.paid[i] ?? 0) >= monthlyDue(m.heads)) return `${MONTH_NAMES[i]} savings are already fully paid; approving adds ${peso(p.amount)} more.`
+  return ''
 }

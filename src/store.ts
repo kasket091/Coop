@@ -17,7 +17,7 @@ import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { feeTopUps, payFromSavings } from './termination'
 import { dueDay } from './format'
-import type { PaymentRequest } from './payments'
+import { approvalDates, type PaymentRequest } from './payments'
 import { BACKUP_COLLECTIONS, makeBackup, type Backup } from './backup'
 
 // Offline, Firestore would queue writes and send them later (a payment or void landing hours after it was typed):
@@ -470,9 +470,13 @@ const viaNote = (p: PaymentRequest) => `member's payment request${p.months?.leng
  * The admin approves: a loan payment is recorded as the admin's Advance/Custom Payment, as of the day the member
  * sent it; savings as Record savings for its month. The request is marked approved in the same transaction.
  */
-export async function approvePaymentRequest(p: PaymentRequest, m: StoredMember, year: number): Promise<void> {
+export async function approvePaymentRequest(p: PaymentRequest, m: StoredMember, year: number, loan?: LoanRequest): Promise<void> {
   if (m.terminated) throw new Error('This account is terminated. Restore it to record payments.')
-  if (p.kind === 'loan') return loanCustomPayment(p.loanId!, year, p.amount, p.createdAt, p.createdAt, { request: p.id, note: viaNote(p) })
+  if (p.kind === 'loan') {
+    if (!loan) throw new Error('This loan no longer exists.')
+    const { at, forAt } = approvalDates(p, loan)
+    return loanCustomPayment(loan.id, year, p.amount, at, forAt, { request: p.id, note: viaNote(p) })
+  }
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'paymentRequests', p.id)
     if ((await tx.get(ref)).data()?.status !== 'pending') throw new Error('This request was already decided.')
@@ -818,7 +822,8 @@ async function allMembers(): Promise<StoredMember[]> {
 
 /** New yearly cycle: clears members, logins, founders, loans, transactions and payment requests (with their screenshots), then sets the year. */
 export async function startCycle(year: number): Promise<void> {
-  for (const name of ['members', 'founders', 'logins', 'loanRequests', 'transactions', 'paymentRequests', 'paymentProofs']) {
+  await clearPaymentProofs()
+  for (const name of ['members', 'founders', 'logins', 'loanRequests', 'transactions', 'paymentRequests']) {
     const docs = (await getDocs(collection(db, name))).docs
     for (let i = 0; i < docs.length; i += 400) {
       const batch = writeBatch(db)
@@ -828,6 +833,15 @@ export async function startCycle(year: number): Promise<void> {
   }
   await setDoc(doc(db, 'settings', 'cycle'), { year })
   await recomputeSummary([])
+}
+
+/**
+ * Deletes every payment screenshot without downloading them: each has its request's id, so the (small) requests are
+ * read and their screenshots deleted by id.
+ */
+async function clearPaymentProofs(): Promise<void> {
+  const ids = (await getDocs(collection(db, 'paymentRequests'))).docs.map((d) => d.id)
+  await commitChunks(ids.map((id) => (b) => b.delete(doc(db, 'paymentProofs', id))))
 }
 
 // ---------- backup, clear, restore (admin) ----------
@@ -842,8 +856,10 @@ export async function exportDatabase(): Promise<Backup> {
 
 /** Deletes every document the app uses. Sign-in accounts (passwords) are kept, so a restore brings logins back. */
 export async function clearDatabase(onProgress: (msg: string) => void = () => {}): Promise<void> {
-  // screenshots aren't in backups (they'd make the file huge), so they are cleared on their own
-  for (const name of [...BACKUP_COLLECTIONS, 'paymentProofs']) {
+  // screenshots aren't in backups (they'd make the file huge), so they are cleared on their own, first
+  onProgress('Clearing payment screenshots…')
+  await clearPaymentProofs()
+  for (const name of BACKUP_COLLECTIONS) {
     onProgress(`Clearing ${name}…`)
     const docs = (await getDocs(collection(db, name))).docs
     await commitChunks(docs.map((d) => (b) => b.delete(d.ref)))

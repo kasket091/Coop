@@ -10,7 +10,7 @@ import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext
 import { advancePayments, carryoverMonths, isAdvance, savingsEntry } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
-import { approvalPreview, type PaymentRequest } from './payments'
+import { approvalPreview, previewText, savingsAlreadyIn, type PaymentRequest } from './payments'
 import { askText, askYes, tell } from './dialog'
 import { PushSetting } from './push'
 import { HandbookAdmin } from './handbook'
@@ -513,6 +513,7 @@ function PaymentRequestsPanel({ list, loans, txns, members, year, search }: {
               <div className="request-head"><b>{p.memberName}</b><b>{peso(p.amount)}</b></div>
               <p className="note">{what(p)} · sent {dueDay(p.createdAt)}</p>
               {another && <p className="alert">Another payment for this loan is waiting too.</p>}
+              {p.kind === 'savings' && m && savingsAlreadyIn(p, m) && <p className="alert">{savingsAlreadyIn(p, m)}</p>}
               <button className="link" onClick={() => showProof(p.id)}>{proofs[p.id] ? 'Hide screenshot' : 'Show screenshot'}</button>
               {proofs[p.id] && <img className="proof-full" src={proofs[p.id]!} alt={`${p.memberName}'s payment screenshot`} />}
               <p className={'error' in preview ? 'alert' : 'note'} role="status">
@@ -522,7 +523,7 @@ function PaymentRequestsPanel({ list, loans, txns, members, year, search }: {
               </p>
               <div className="actions">
                 <button className="btn" disabled={busy === p.id || 'error' in preview || !m}
-                  onClick={async () => m && await askYes(`Record ${p.memberName}'s ${peso(p.amount)} payment? Check GCash or the bank first.`, 'Approve') && run(p.id, () => approvePaymentRequest(p, m, year))}>Approve</button>
+                  onClick={async () => m && await askYes(`Record ${p.memberName}'s ${peso(p.amount)} payment? Check GCash or the bank first.`, 'Approve') && run(p.id, () => approvePaymentRequest(p, m, year, loan))}>Approve</button>
                 <button className="copy" disabled={busy === p.id}
                   onClick={async () => { const reason = await askText(`Why isn't ${p.memberName}'s ${peso(p.amount)} payment accepted? They will see this.`); if (reason) await run(p.id, () => rejectPaymentRequest(p.id, reason)) }}>Reject</button>
               </div>
@@ -638,9 +639,7 @@ function CustomPay({ r, txns, year, amount, onAmount, busy, onCancel, onRecord }
       {p && ('error' in p
         ? <p className="alert" role="status">{p.error}</p>
         : <p className="note" role="status">
-            {p.interestPart > 0 && `${peso(p.interestPart)} this month's interest + `}{p.collected > p.interestPart && `${peso(p.collected - p.interestPart)} carried-over interest + `}{peso(Math.max(0, n - p.collected))} off the loan
-            {' · '}{p.paidOff ? 'loan fully paid' : `new balance ${peso(p.balance)}`}
-            {p.interestPart < waivedDue(n, due) && ` (${peso(waivedDue(n, due) - p.interestPart)} unpaid interest added to the balance)`}
+            {previewText(p, n, due)}
           </p>)}
       <span className="pay-buttons">
         <button className="btn" disabled={busy || !(late ? replayed && !('error' in replayed) : p && !('error' in p))} onClick={() => onRecord(n, at, forAt)}>Record payment</button>

@@ -23,9 +23,16 @@ service cloud.firestore {
     // members' payments sent for the admin to check (Pay Now, Pay savings): a member sends and withdraws their own
     // while pending; only the admin approves or rejects
     match /paymentRequests/{id} {
+      function payment() { return request.resource.data; }
       allow read: if isAdmin() || (isMember() && resource.data.memberId == me());
-      allow create: if isMember() && request.resource.data.memberId == me() && request.resource.data.status == 'pending'
-        && request.resource.data.amount is number && request.resource.data.amount > 0;
+      // dated now (approval records the payment as of this day), in the member's own name, for their own loan
+      allow create: if isMember() && payment().memberId == me() && payment().status == 'pending'
+        && payment().amount is number && payment().amount > 0
+        && payment().createdAt is number && math.abs(payment().createdAt - request.time.toMillis()) < 300000
+        && payment().memberName == get(/databases/$(database)/documents/members/$(me())).data.name
+        && payment().keys().hasOnly(['memberId', 'memberName', 'kind', 'loanId', 'loanLabel', 'choice', 'months', 'month', 'amount', 'createdAt', 'status'])
+        && (payment().kind == 'savings'
+          || (payment().kind == 'loan' && get(/databases/$(database)/documents/loanRequests/$(payment().loanId)).data.borrowerId == me()));
       allow update: if isAdmin();
       allow delete: if isAdmin() || (isMember() && resource.data.memberId == me() && resource.data.status == 'pending');
     }
@@ -33,10 +40,13 @@ service cloud.firestore {
     // a request's screenshot (doc id = the request's id), kept apart so the request list loads without images
     match /paymentProofs/{id} {
       allow read: if isAdmin() || (isMember() && resource.data.memberId == me());
+      // sent together with its (still pending) request; a member removes it only by withdrawing that request
       allow create: if isMember() && request.resource.data.memberId == me()
         && request.resource.data.image is string && request.resource.data.image.size() < 900000
-        && getAfter(/databases/$(database)/documents/paymentRequests/$(id)).data.memberId == me();
-      allow delete: if isAdmin() || (isMember() && resource.data.memberId == me());
+        && getAfter(/databases/$(database)/documents/paymentRequests/$(id)).data.memberId == me()
+        && getAfter(/databases/$(database)/documents/paymentRequests/$(id)).data.status == 'pending';
+      allow delete: if isAdmin()
+        || (isMember() && resource.data.memberId == me() && !existsAfter(/databases/$(database)/documents/paymentRequests/$(id)));
     }
 
     match /settings/{doc} {

@@ -5,7 +5,7 @@ import { tell } from './dialog'
 import { dueDay, MONTHS, peso } from './format'
 import { shrinkImage } from './image'
 import type { Txn } from './ledger'
-import { choiceAmount, choicePreview, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PayChoice, type PaymentRequest } from './payments'
+import { choiceAmount, choicePreview, previewText, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PayChoice, type PaymentRequest } from './payments'
 import { balanceOf, interestDueNow, refLabel, type LoanRequest } from './requests'
 import { monthlyDue } from './rules'
 import { sendPaymentRequest, type StoredMember } from './store'
@@ -108,10 +108,7 @@ export function PayLoanDialog({ me, loan, loans, txns, onClose }: { me: StoredMe
       </>}
       {preview && ('error' in preview
         ? <p className="alert" role="status">{preview.error}</p>
-        : <p className="note" role="status">
-            {preview.interestPart > 0 && `${peso(preview.interestPart)} this month's interest + `}{preview.collected > preview.interestPart && `${peso(preview.collected - preview.interestPart)} missed interest + `}{peso(Math.max(0, amount - preview.collected))} off the loan
-            {' · '}{preview.paidOff ? 'loan fully paid' : `new balance ${peso(preview.balance)}`}
-          </p>)}
+        : <p className="note" role="status">{previewText(preview, amount, interestDueNow(loan, txns, now))}</p>)}
       <details className="pay-loans">
         <summary>Your loans</summary>
         <ul className="rows">
