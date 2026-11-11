@@ -369,3 +369,14 @@ a.btn.wide { display: flex; text-align: center; }
 .log-list .log-day { color: var(--muted); }
 .log-list small { grid-column: 2 / -1; color: var(--muted); font-size: 13px; }
 .log .actions { margin-top: 16px; }
+/* member payment pop-ups (Pay Now on a loan, Pay savings) */
+.ask.pay { width: min(520px, calc(100vw - 32px)); max-height: 90vh; }
+.ask.pay h2 { font-size: 18px; margin: 0 0 4px; }
+.pay-choice { border: 0; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
+.pay-choice legend { font-size: 14px; font-weight: 600; color: var(--navy); margin-bottom: 4px; }
+.pay-choice label { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border: 1.5px solid var(--line); border-radius: var(--radius); }
+.pay-choice input { width: 20px; height: 20px; margin: 0; }
+.pay-loans { margin: 12px 0; }
+.pay-loans summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; color: var(--navy); cursor: pointer; }
+.ask .field input[type="file"] { min-height: 0; padding: 10px 0; border: 0; }
+.proof-thumb { display: block; max-width: 140px; max-height: 200px; margin-top: 8px; border-radius: var(--radius); border: 1px solid var(--line); }

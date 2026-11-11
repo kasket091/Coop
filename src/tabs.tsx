@@ -119,26 +119,34 @@ const CHANNELS = [
   { name: 'Maya', number: '09499974143' },
 ]
 
-export function PayRules() {
+/** BPI, GCash and Maya with Copy buttons (Pay & Rules, and the payment pop-ups). `children` adds rows below. */
+export function PaymentAccounts({ children }: { children?: React.ReactNode }) {
   const [copied, setCopied] = useState<string | null>(null)
   const copy = (name: string, n: string) =>
     navigator.clipboard?.writeText(n).then(() => { setCopied(name); setTimeout(() => setCopied(null), 1500) }, () => setCopied(null))
+  return (
+    <div className="panel" style={{ marginTop: 14 }}>
+      {CHANNELS.map((c) => (
+        <div className="channel" key={c.name}>
+          <div><b>{c.name}</b><span>{c.number}</span></div>
+          <button type="button" className="copy" onClick={() => copy(c.name, c.number)} aria-label={`Copy ${c.name} number`}>
+            {copied === c.name ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      ))}
+      {children}
+    </div>
+  )
+}
 
+export function PayRules() {
   return (
     <section>
       <h1 style={{ fontSize: 22 }}>How to pay</h1>
       <p className="plan">All accounts are under Bryan Kevin Tabuan.</p>
-      <div className="panel" style={{ marginTop: 14 }}>
-        {CHANNELS.map((c) => (
-          <div className="channel" key={c.name}>
-            <div><b>{c.name}</b><span>{c.number}</span></div>
-            <button className="copy" onClick={() => copy(c.name, c.number)} aria-label={`Copy ${c.name} number`}>
-              {copied === c.name ? 'Copied' : 'Copy'}
-            </button>
-          </div>
-        ))}
+      <PaymentAccounts>
         <div className="channel"><div><b>Cash</b><span>Victors Subdivision, Carmen/Canitoan, CDO. Message Bryan first.</span></div></div>
-      </div>
+      </PaymentAccounts>
       <p className="fine" style={{ marginTop: 8 }}>Transfer fees between BPI, GCash and Maya (₱10–₱15) are paid by the member.</p>
 
       <div className="section">
