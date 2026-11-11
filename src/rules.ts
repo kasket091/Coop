@@ -10,7 +10,7 @@ export type Member = {
 
 export const PER_HEAD = 500
 export const DEFAULT_CYCLE_YEAR = 2026
-const DUE_DAY = 7
+export const DUE_DAY = 7
 const REPAY_BY_DAY = 15 // every loan is repaid by December 15 (handbook p.4)
 
 const cents = (x: number) => Math.round(x * 100) / 100

@@ -16,7 +16,7 @@ const LOAN: Record<LoanType, string> = {
 // shortcut: carryover entries keep their amounts, and recalculated payments their balance, only in the note text
 // ("₱3,840 interest …; balance now ₱51,840"); store them as fields on the entry if these notes are ever reworded
 const peso = (s?: string) => (s ? Number(s.replace(/,/g, '')) : undefined)
-const firstPeso = (note: string) => peso(note.match(/₱([\d,]+(?:\.\d+)?)/)?.[1])
+export const firstPeso = (note: string) => peso(note.match(/₱([\d,]+(?:\.\d+)?)/)?.[1])
 const balanceNow = (note: string) => peso(note.match(/balance now ₱([\d,]+(?:\.\d+)?)/)?.[1])
 
 function label(t: Txn): string {
