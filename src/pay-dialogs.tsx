@@ -5,14 +5,13 @@ import { tell } from './dialog'
 import { dueDay, MONTHS, peso } from './format'
 import { shrinkImage } from './image'
 import type { Txn } from './ledger'
-import { advanceMonths, choiceAmount, choicePreview, previewText, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PayChoice, type PaymentRequest } from './payments'
+import { advanceMonths, choiceAmount, loanLabel, payoffItems, choicePreview, previewText, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PayChoice, type PaymentRequest } from './payments'
 import { balanceOf, interestDueNow, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { monthlyDue } from './rules'
 import { sendPaymentRequest, type StoredMember } from './store'
 import { PaymentAccounts, TYPES } from './tabs'
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-export const loanLabel = (r: LoanRequest) => [refLabel(r), TYPES[r.type]].filter(Boolean).join(' · ')
 
 /** A modal pop-up that opens when shown; closing it (Cancel, Esc, after sending) calls `onClose`. */
 function PayDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
@@ -125,6 +124,37 @@ export function PayLoanDialog({ me, loan, loans, txns, onClose }: { me: StoredMe
   )
 }
 
+/** Pay Now under the loans total: everything owed on every loan, in full (no other choice), with a summary. */
+export function PayAllDialog({ me, loans, txns, onClose }: { me: StoredMember; loans: LoanRequest[]; txns: Txn[]; onClose: () => void }) {
+  const now = Date.now()
+  const items = payoffItems(loans)
+  const amount = Math.round(items.reduce((t, x) => t + x.amount, 0) * 100) / 100
+  const [image, setImage] = useState('')
+  const [error, setError] = useState('')
+  const send = async () => {
+    setError('')
+    try {
+      await sendPaymentRequest({ memberId: me.uid, memberName: me.name, kind: 'payoff', payoffLoans: items, amount }, image)
+      onClose(); await sent()
+    } catch (err) { setError((err as Error).message || "Couldn't send. Check your connection.") }
+  }
+  return (
+    <PayDialog title="Pay all loans" onClose={onClose}>
+      <ul className="rows">
+        {loans.map((r) => (
+          <li key={r.id}><span>{loanLabel(r)}</span><b>{peso(balanceOf(r))}{interestDueNow(r, txns, now) > 0 ? ` · ${peso(interestDueNow(r, txns, now))} interest due` : ''}</b></li>
+        ))}
+        <li><span>Full payment</span><b>{peso(amount)}</b></li>
+      </ul>
+      <p className="note" role="status">All loans fully paid once the admin records it.</p>
+      <ProofField image={image} onImage={setImage} onError={setError} />
+      <PaymentAccounts />
+      {error && <p className="alert" role="alert">{error}</p>}
+      <SendRow ready={amount > 0 && !!image} onSend={send} onCancel={onClose} />
+    </PayDialog>
+  )
+}
+
 /**
  * Pay savings, above the savings total: this month only, open from the 1st to the 7th. Hidden once the month is paid
  * (or a request for it is waiting) and for a terminated account.
@@ -182,7 +212,7 @@ export function MyPayments({ list, onWithdraw }: { list: PaymentRequest[]; onWit
       <ul className="rows panel">
         {shown.map((p) => (
           <li key={p.id}>
-            <span>{p.kind === 'savings' ? `${MONTH_NAMES[p.month ?? 0]} savings` : p.kind === 'advance' ? `Advance savings: ${(p.advanceMonths ?? []).map((i) => MONTH_NAMES[i]).join(', ')}` : p.loanLabel} · {dueDay(p.createdAt)}
+            <span>{p.kind === 'savings' ? `${MONTH_NAMES[p.month ?? 0]} savings` : p.kind === 'advance' ? `Advance savings: ${(p.advanceMonths ?? []).map((i) => MONTH_NAMES[i]).join(', ')}` : p.kind === 'payoff' ? 'Pay off all loans' : p.loanLabel} · {dueDay(p.createdAt)}
               <small className="advance-sub">{p.status === 'pending' ? 'Waiting for the admin' : `Not accepted: ${p.reason}`}</small></span>
             <b>{peso(p.amount)}{p.status === 'pending' && <> <button className="btn-mini" onClick={() => onWithdraw(p)}>Withdraw</button></>}</b>
           </li>

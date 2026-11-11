@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Txn } from './ledger'
-import { advanceMonths, approvalDates, approvalPreview, choiceAmount, previewText, savingsAlreadyIn, choicePreview, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PaymentRequest } from './payments'
+import { advanceMonths, approvalDates, approvalPreview, choiceAmount, payoffItems, payoffPreview, previewText, savingsAlreadyIn, choicePreview, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PaymentRequest } from './payments'
 import type { LoanRequest } from './requests'
 
 const at = (m: number, d: number, h = 12) => Date.UTC(2026, m, d, h - 8) // h o'clock in Manila
@@ -132,5 +132,30 @@ describe('advance savings: months after the current one, paid in full, only with
     expect(approvalPreview(adv, undefined, [])).toEqual({ savings: true })
     expect(savingsAlreadyIn(adv, ana)).toBe('')
     expect(savingsAlreadyIn(adv, { ...ana, paid: ana.paid.map((x, i) => (i === 11 ? 1000 : x)) })).toBe('December savings are already fully paid; approving adds ₱1,000 more.')
+  })
+})
+
+describe('pay off all loans in one request', () => {
+  const sl = { ...flex, id: 'S1', ref: '5SL', type: 'savings', amount: 6000, principal: 6000, balance: 6600, carriedMonth: 9, upfront: true } as LoanRequest
+  const payoff = (over: Partial<PaymentRequest> = {}): PaymentRequest => ({
+    id: 'p', memberId: 'me', memberName: 'Ana', kind: 'payoff', amount: 62587.2, createdAt: at(10, 12), status: 'pending',
+    payoffLoans: [{ loanId: 'L1', label: '3FL', amount: 55987.2 }, { loanId: 'S1', label: '5SL', amount: 6600 }], ...over,
+  })
+  it('the request lists every unpaid loan with what it owed; the total is their sum', () => {
+    expect(payoffItems([flex, sl])).toEqual([{ loanId: 'L1', label: '3FL · Flex (8% a month)', amount: 55987.2 }, { loanId: 'S1', label: '5SL · Savings Loan (10%)', amount: 6600 }])
+  })
+  it('every loan still open and still owing that much: approving pays them all off', () => {
+    expect(payoffPreview(payoff(), [flex, sl], [])).toEqual({ balance: 0 })
+  })
+  it('a loan paid another way or removed meanwhile: says which, so only Reject works', () => {
+    expect(payoffPreview(payoff(), [flex], [])).toEqual({ error: '5SL: This loan no longer exists.' })
+    expect(payoffPreview(payoff(), [flex, { ...sl, status: 'paid' } as LoanRequest], [])).toEqual({ error: '5SL: This loan is already paid off.' })
+  })
+  it('a loan this request already paid (approving stopped halfway) is skipped, not an error', () => {
+    expect(payoffPreview(payoff({ payoffDone: ['S1'] }), [flex, { ...sl, status: 'paid' } as LoanRequest], [])).toEqual({ balance: 0 })
+  })
+  it("a loan that isn't the member's is refused", () => {
+    expect(payoffPreview(payoff(), [flex, { ...sl, borrowerId: 'someone-else' } as LoanRequest], [])).toEqual({ error: "5SL: This loan isn't this member's." })
+    expect(approvalPreview({ ...payoff(), kind: 'loan', loanId: 'L1', amount: 100 }, { ...flex, borrowerId: 'x' } as LoanRequest, [])).toEqual({ error: "This loan isn't this member's." })
   })
 })

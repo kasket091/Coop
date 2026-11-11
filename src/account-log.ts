@@ -89,7 +89,7 @@ export function accountLog(loans: LoanRequest[], txns: Txn[], payments: PaymentR
   // a member's payment the admin rejected (approved ones show through their transactions; waiting ones aren't history)
   const groupOf = (id?: string) => { const r = loans.find((x) => x.id === id); return r ? { key: r.id, group: [r.ref, LOAN[r.type]].filter(Boolean).join(' · ') } : { key: 'savings', group: 'Savings' } }
   const rejected = payments.filter((p) => p.status === 'rejected' && p.decidedAt).map((p) => ({
-    ...groupOf(p.loanId), month: monthKey(p.decidedAt!), line: { at: p.decidedAt!, label: `Payment request rejected: ${p.reason ?? ''}`, amount: p.amount } as LogLine,
+    ...groupOf(p.loanId ?? p.payoffLoans?.[0]?.loanId), month: monthKey(p.decidedAt!), line: { at: p.decidedAt!, label: `Payment request rejected: ${p.reason ?? ''}`, amount: p.amount } as LogLine,
   }))
   // newest month first, then newest first; entries saved together keep their order reversed, so the one carrying
   // the balance stays on top

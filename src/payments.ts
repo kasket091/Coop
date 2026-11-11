@@ -3,15 +3,18 @@
 import { firstPeso } from './account-log'
 import type { Txn } from './ledger'
 import { peso } from './format'
-import { balanceOf, customPayment, interestDueNow, loanDeadline, loanPeriod, type CustomPayment, paymentHistory, periodAt, principalOf, recordedLate, replayLoan, waivedDue, type LoanRequest } from './requests'
+import { balanceOf, customPayment, interestDueNow, loanDeadline, loanPeriod, refLabel, type CustomPayment, paymentHistory, periodAt, principalOf, recordedLate, replayLoan, waivedDue, type LoanRequest } from './requests'
 import { DUE_DAY, monthlyDue } from './rules'
+import { TYPES } from './tabs'
 
 export type PayChoice = 'interest' | 'full' | 'custom'
 export type PaymentRequest = {
-  id: string; memberId: string; memberName: string; kind: 'loan' | 'savings' | 'advance'
+  id: string; memberId: string; memberName: string; kind: 'loan' | 'savings' | 'advance' | 'payoff'
   loanId?: string; loanLabel?: string; choice?: PayChoice; months?: string[]; month?: number
   /** advance savings: the future months paid in full (0–11) */
   advanceMonths?: number[]
+  /** pay off all loans: each loan with what it owed when sent; `payoffDone` = those already recorded by this request */
+  payoffLoans?: { loanId: string; label: string; amount: number }[]; payoffDone?: string[]
   amount: number; createdAt: number; status: 'pending' | 'approved' | 'rejected'; decidedAt?: number; reason?: string
 }
 
@@ -59,8 +62,9 @@ export const savingsPayMonth = (now: Date) => manila(now.getTime()).getUTCMonth(
  * same as a late Advance/Custom Payment), or why it can't be recorded. Savings need nothing worked out.
  */
 export function approvalPreview(p: PaymentRequest, loan: LoanRequest | undefined, txns: Txn[]): { savings: true } | { balance: number } | { error: string } {
-  if (p.kind !== 'loan') return { savings: true }
+  if (p.kind === 'savings' || p.kind === 'advance') return { savings: true }
   if (!loan) return { error: 'This loan no longer exists.' }
+  if (loan.borrowerId !== p.memberId) return { error: "This loan isn't this member's." }
   if (loan.status === 'paid') return { error: 'This loan is already paid off.' }
   if (loan.status !== 'approved') return { error: 'This loan is no longer open.' }
   const period = loanPeriod(loan, approvalDates(p, loan).forAt)
@@ -109,4 +113,26 @@ export function advanceMonths(m: { heads: number; paid: number[]; carried?: numb
   const out: number[] = []
   for (let i = d.getUTCMonth() + 1; i < 12; i++) if ((m.paid[i] ?? 0) < monthlyDue(m.heads) && !((m.carried?.[i] ?? 0) > 0) && !sent.has(i)) out.push(i)
   return out
+}
+
+/** A loan as members and the admin see it named: "3FL · Flex (8% a month)". */
+export const loanLabel = (r: LoanRequest) => [refLabel(r), TYPES[r.type]].filter(Boolean).join(' · ')
+
+/** Pay all loans: every unpaid loan with everything it owes now (the member's Pay Now under the total). */
+export const payoffItems = (loans: LoanRequest[]) => loans.map((r) => ({ loanId: r.id, label: loanLabel(r), amount: balanceOf(r) }))
+
+/**
+ * What approving a pay-off-all request records: each listed loan paid with what it owed when sent, as of that day
+ * (approvalPreview per loan). Loans this request already recorded (approving stopped halfway) are skipped. The
+ * balance is what would still be owed in all (0 when every loan closes), or the first loan that can't be paid.
+ */
+export function payoffPreview(p: PaymentRequest, loans: LoanRequest[], txns: Txn[]): { balance: number } | { error: string } {
+  let left = 0
+  for (const item of p.payoffLoans ?? []) {
+    if (p.payoffDone?.includes(item.loanId)) continue
+    const r = approvalPreview({ ...p, kind: 'loan', loanId: item.loanId, amount: item.amount }, loans.find((x) => x.id === item.loanId), txns)
+    if ('error' in r) return { error: `${item.label.split(' · ')[0]}: ${r.error}` }
+    if ('balance' in r) left = cents(left + r.balance)
+  }
+  return { balance: left }
 }

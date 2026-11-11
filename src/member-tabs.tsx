@@ -12,7 +12,7 @@ import {
 } from './store'
 import { Calculator, CONDITIONS, quoteText, termOptions, TYPES } from './tabs'
 import { askYes, tell } from './dialog'
-import { MyPayments, PayLoanDialog } from './pay-dialogs'
+import { MyPayments, PayAllDialog, PayLoanDialog } from './pay-dialogs'
 import type { PaymentRequest } from './payments'
 
 const fmtDate = (ms: number) => new Date(ms).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
@@ -21,6 +21,7 @@ const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
 // ---------- Loans: remaining, active, requests, closed, transactions, new request, calculator ----------
 export function LoansTab({ me, year, mine, txns, payments, onPay }: { me: StoredMember; year: number; mine: LoanRequest[]; txns: Txn[]; payments: PaymentRequest[]; onPay: () => void }) {
   const [paying, setPaying] = useState<LoanRequest | null>(null) // the loan whose Pay Now pop-up is open
+  const [payingAll, setPayingAll] = useState(false) // Pay Now under the total: every loan in full
   const now = Date.now()
   const unpaid = unpaidLoans(mine, me.uid, me.sheetLoanBalance ?? 0, { txns, now })
   const [showAll, setShowAll] = useState(false) // newest 5 first; the rest on request
@@ -34,7 +35,7 @@ export function LoansTab({ me, year, mine, txns, payments, onPay }: { me: Stored
       <div className={`unpaid ${unpaid.total > 0 ? 'owing' : ''}`} style={{ marginTop: 12 }}>
         <div className="unpaid-head"><span>Current loans remaining</span><b>{peso(unpaid.total)}</b></div>
         {unpaid.interestDue > 0 && <p className="note" style={{ marginTop: 4 }}>Includes {peso(unpaid.interestDue)} interest not yet paid (see each loan for its due date).</p>}
-        {unpaid.total > 0 && <button className="btn wide" onClick={onPay}>Pay Now</button>}
+        {unpaid.total > 0 && <button className="btn wide" onClick={unpaid.loans.length && !me.terminated ? () => setPayingAll(true) : onPay}>Pay Now</button>}
       </div>
 
       <div className="section">
@@ -59,6 +60,7 @@ export function LoansTab({ me, year, mine, txns, payments, onPay }: { me: Stored
         )}
       </div>
 
+      {payingAll && <PayAllDialog me={me} loans={unpaid.loans} txns={txns} onClose={() => setPayingAll(false)} />}
       {paying && <PayLoanDialog me={me} loan={paying} loans={unpaid.loans} txns={txns} onClose={() => setPaying(null)} />}
       <MyPayments list={payments} onWithdraw={async (p) => {
         if (!await askYes(`Take back your ${peso(p.amount)} payment? The admin won't see it any more.`, 'Take back')) return

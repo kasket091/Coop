@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, expect, it, vi } from 'vitest'
 import { LoansTab } from './member-tabs'
-import { AdvanceSavings, MyPayments, PayLoanDialog, PaySavingsButton } from './pay-dialogs'
+import { AdvanceSavings, MyPayments, PayAllDialog, PayLoanDialog, PaySavingsButton } from './pay-dialogs'
 import type { PaymentRequest } from './payments'
 import type { LoanRequest } from './requests'
 import type { StoredMember } from './store'
@@ -71,4 +71,15 @@ it('on the Savings tab only future months that can be paid ahead are buttons', a
   const coop = { totalSavings: 0, totalInterest: 0, heads: 1, members: 1 } as never
   const page = renderToStaticMarkup(<MySavings m={me} coop={coop} year={2026} advanceable={[11]} onAdvance={() => {}} />)
   expect(page.match(/Pay \w+ savings in advance/g)).toEqual(['Pay Dec savings in advance'])
+})
+
+it('Pay all loans: every loan with what it owes, one full payment, the screenshot and payment accounts', () => {
+  const sl = { ...loan, id: 's', ref: '5SL', type: 'savings', amount: 6000, balance: 6600, carriedMonth: 9, upfront: true } as LoanRequest
+  const page = renderToStaticMarkup(<PayAllDialog me={me} loans={[loan, sl]} txns={[]} onClose={() => {}} />)
+  expect(page).toContain('Pay all loans')
+  expect(page).toContain('3FL · Flex (8% a month)')
+  expect(page).toContain('5SL · Savings Loan (10%)')
+  expect(page).toContain('₱11,600') // ₱5,000 + ₱6,600, the only option
+  expect(page).not.toContain('Custom Payment')
+  expect(page).toContain('Screenshot of your payment')
 })

@@ -72,6 +72,11 @@ describe('payment requests', () => {
     expect(paymentMessagesFor(undefined, adv)[0].body).toBe('Ana Reyes sent ₱2,000 for November, December savings (advance).')
     expect(paymentMessagesFor(adv, { ...adv, status: 'approved' })[0].body).toBe('Your ₱2,000 payment for November, December savings was recorded.')
   })
+  it('paying off all loans names each loan', () => {
+    const all = pay({ kind: 'payoff', payoffLoans: [{ label: '3FL · Flex' }, { label: '5SL · Savings Loan' }], choice: undefined, loanLabel: undefined, amount: 12400 })
+    expect(paymentMessagesFor(undefined, all)[0].body).toBe('Ana Reyes sent ₱12,400 to pay off all loans (3FL, 5SL).')
+    expect(paymentMessagesFor(all, { ...all, status: 'approved' })[0].body).toBe('Your ₱12,400 payment for all loans (3FL, 5SL) was recorded.')
+  })
   it('anything else sends nothing', () => {
     expect(paymentMessagesFor(pay({ status: 'approved' }), pay({ status: 'approved' }))).toEqual([])
   })

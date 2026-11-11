@@ -5,7 +5,7 @@ import {
   signInWithEmailAndPassword, signOut, updatePassword,
 } from 'firebase/auth'
 import {
-  addDoc as addDocRaw, clearIndexedDbPersistence, collection, deleteDoc as deleteDocRaw, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction as runTransactionRaw,
+  addDoc as addDocRaw, arrayUnion, clearIndexedDbPersistence, collection, deleteDoc as deleteDocRaw, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction as runTransactionRaw,
   setDoc as setDocRaw, terminate, updateDoc as updateDocRaw, where, writeBatch as writeBatchRaw,
   type DocumentReference, type Transaction, type Unsubscribe,
 } from 'firebase/firestore'
@@ -302,8 +302,11 @@ export async function adminDecide(id: string, status: 'approved' | 'declined', y
  * only once it is paid.
  */
 type LoanEntry = { kind: TxnKind; amount: number; note: string; carryover?: boolean; month?: number; settles?: boolean; period?: number; paidOn?: number; restores?: string[] }
-/** `request`: a member's payment request this records; it is marked approved in the same transaction (once only). */
-async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number | boolean>; entries: LoanEntry[]; voids?: string[] }, request?: string) {
+/**
+ * `request`: a member's payment request this records; it is marked approved in the same transaction (once only).
+ * A pay-off-all request records one loan at a time: `partOf` marks this loan done on it, and the last one approves it.
+ */
+async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number | boolean>; entries: LoanEntry[]; voids?: string[] }, request?: string, partOf?: boolean) {
   let memberId = ''
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
@@ -324,7 +327,7 @@ async function loanAction(id: string, year: number, act: (r: LoanRequest) => { u
     for (const e of entries) {
       tx.set(doc(txns), txnRecord({ memberId: r.borrowerId, memberName: r.borrowerName, loanId: id, loanBefore: loanSnapshot(r), ...e }, year, now))
     }
-    if (requestRef) tx.update(requestRef, { status: 'approved', decidedAt: now })
+    if (requestRef) tx.update(requestRef, partOf ? { payoffDone: arrayUnion(id) } : { status: 'approved', decidedAt: now })
     memberId = r.borrowerId
   })
   await rebuildLedger(memberId, year)
@@ -383,7 +386,7 @@ export const payForSavings = (id: string, year: number) =>
  * late entry): its month follows that day. `forAt` is a day in the period it counts for (default: the day paid); that
  * period then has nothing to carry over. The entry is still dated now, so Void keeps its order.
  */
-export const loanCustomPayment = async (id: string, year: number, amount: number, at = Date.now(), forAt = at, via?: { request: string; note: string }) => {
+export const loanCustomPayment = async (id: string, year: number, amount: number, at = Date.now(), forAt = at, via?: { request: string; note: string; partOf?: boolean }) => {
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
     const paidDay = new Date(at + 8 * 3600_000) // Manila
@@ -408,7 +411,7 @@ export const loanCustomPayment = async (id: string, year: number, amount: number
         ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, period: period.n, month: m, paidOn, note: `${what}: off the balance` }] : []),
       ],
     }
-  }, via?.request)
+  }, via?.request, via?.partOf)
 }
 
 /** The loan rebuilt from its history (replayLoan): old carryovers and payments voided, the rebuilt ones written. */
@@ -464,15 +467,27 @@ export const watchPaymentRequests = (cb: (p: PaymentRequest[]) => void): Unsubsc
 export const getPaymentProof = async (id: string) => (await getDoc(doc(db, 'paymentProofs', id))).data()?.image as string | undefined
 
 /** What the entries say about where a payment came from (shown in the transactions and the account log). */
-const viaNote = (p: PaymentRequest) => `member's payment request${p.months?.length ? `; months: ${p.months.join(', ')}` : ''}`
+const viaNote = (p: PaymentRequest) => `member's payment request${p.kind === 'payoff' ? ' to pay off all loans' : ''}${p.months?.length ? `; months: ${p.months.join(', ')}` : ''}`
 
 /**
  * The admin approves: a loan payment is recorded as the admin's Advance/Custom Payment, as of the day the member
  * sent it; savings as Record savings for its month (advance savings: each ticked month in full). The request is
  * marked approved in the same transaction.
  */
-export async function approvePaymentRequest(p: PaymentRequest, m: StoredMember, year: number, loan?: LoanRequest): Promise<void> {
+export async function approvePaymentRequest(p: PaymentRequest, m: StoredMember, year: number, loans: LoanRequest[]): Promise<void> {
   if (m.terminated) throw new Error('This account is terminated. Restore it to record payments.')
+  if (p.kind === 'payoff') {
+    // one loan at a time, each closing with what it owed when sent; loans already recorded are skipped on a retry
+    const todo = (p.payoffLoans ?? []).filter((x) => !p.payoffDone?.includes(x.loanId))
+    for (const [i, item] of todo.entries()) {
+      const loan = loans.find((r) => r.id === item.loanId)
+      if (!loan) throw new Error(`${item.label}: this loan no longer exists.`)
+      const { at, forAt } = approvalDates(p, loan)
+      await loanCustomPayment(loan.id, year, item.amount, at, forAt, { request: p.id, note: viaNote(p), partOf: i < todo.length - 1 })
+    }
+    return
+  }
+  const loan = loans.find((r) => r.id === p.loanId)
   if (p.kind === 'loan') {
     if (!loan) throw new Error('This loan no longer exists.')
     const { at, forAt } = approvalDates(p, loan)

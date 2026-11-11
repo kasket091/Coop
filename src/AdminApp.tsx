@@ -10,7 +10,7 @@ import { balanceOf, canAdminApprove, customPayment, interestDueNow, interestNext
 import { advancePayments, carryoverMonths, isAdvance, savingsEntry } from './ledger'
 import { closedMonths } from './rules'
 import { terminationFlag } from './termination'
-import { approvalPreview, previewText, savingsAlreadyIn, type PaymentRequest } from './payments'
+import { approvalPreview, payoffPreview, previewText, savingsAlreadyIn, type PaymentRequest } from './payments'
 import { askText, askYes, tell } from './dialog'
 import { PushSetting } from './push'
 import { HandbookAdmin } from './handbook'
@@ -499,6 +499,7 @@ function PaymentRequestsPanel({ list, loans, txns, members, year, search }: {
   }
   const what = (p: PaymentRequest) => p.kind === 'savings' ? `${MONTHS[p.month ?? 0]} savings`
     : p.kind === 'advance' ? `Advance savings: ${(p.advanceMonths ?? []).map((i) => MONTHS[i]).join(', ')}`
+    : p.kind === 'payoff' ? `Pay off all loans: ${(p.payoffLoans ?? []).map((x) => x.label.split(' · ')[0]).join(', ')}`
     : `${p.loanLabel} · ${CHOICE[p.choice ?? 'custom']}${p.months?.length ? ` (${p.months.join(', ')})` : ''}`
   return (
     <div className="section">
@@ -507,7 +508,8 @@ function PaymentRequestsPanel({ list, loans, txns, members, year, search }: {
         {pending.map((p) => {
           const m = members.find((x) => x.uid === p.memberId)
           const loan = loans.find((r) => r.id === p.loanId)
-          const preview = approvalPreview(p, loan, txns.filter((t) => t.memberId === p.memberId))
+          const mine = txns.filter((t) => t.memberId === p.memberId)
+          const preview = p.kind === 'payoff' ? payoffPreview(p, loans, mine) : approvalPreview(p, loan, mine)
           const another = p.loanId && pending.some((o) => o.id !== p.id && o.loanId === p.loanId)
           return (
             <li key={p.id} className="request">
@@ -521,11 +523,12 @@ function PaymentRequestsPanel({ list, loans, txns, members, year, search }: {
               <p className={'error' in preview ? 'alert' : 'note'} role="status">
                 {'error' in preview ? `${preview.error} Reject it, or record it yourself.`
                   : 'savings' in preview ? `Approving records ${peso(p.amount)} as ${what(p)}.`
+                  : p.kind === 'payoff' ? `Approving pays off each loan as of ${dueDay(p.createdAt)}${preview.balance > 0 ? `; ${peso(preview.balance)} would still be owed` : ''}.${p.payoffDone?.length ? ' Some were already recorded; tap Approve to finish.' : ''}`
                   : `Approving records ${peso(p.amount)} as of ${dueDay(p.createdAt)}; new balance ${peso(preview.balance)}.`}
               </p>
               <div className="actions">
                 <button className="btn" disabled={busy === p.id || 'error' in preview || !m}
-                  onClick={async () => m && await askYes(`Record ${p.memberName}'s ${peso(p.amount)} payment? Check GCash or the bank first.`, 'Approve') && run(p.id, () => approvePaymentRequest(p, m, year, loan))}>Approve</button>
+                  onClick={async () => m && await askYes(`Record ${p.memberName}'s ${peso(p.amount)} payment? Check GCash or the bank first.`, 'Approve') && run(p.id, () => approvePaymentRequest(p, m, year, loans))}>Approve</button>
                 <button className="copy" disabled={busy === p.id}
                   onClick={async () => { const reason = await askText(`Why isn't ${p.memberName}'s ${peso(p.amount)} payment accepted? They will see this.`); if (reason) await run(p.id, () => rejectPaymentRequest(p.id, reason)) }}>Reject</button>
               </div>
