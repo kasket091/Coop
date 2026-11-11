@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, expect, it, vi } from 'vitest'
 import { LoansTab } from './member-tabs'
-import { MyPayments, PayLoanDialog, PaySavingsButton } from './pay-dialogs'
+import { AdvanceSavings, MyPayments, PayLoanDialog, PaySavingsButton } from './pay-dialogs'
 import type { PaymentRequest } from './payments'
 import type { LoanRequest } from './requests'
 import type { StoredMember } from './store'
@@ -46,4 +46,29 @@ it('Payments sent: waiting ones with Withdraw, rejected ones with the reason', (
   expect(page).toContain('Withdraw')
   expect(page).toContain('Not accepted: wrong amount')
   expect(renderToStaticMarkup(<MyPayments list={[p({ status: 'approved' })]} onWithdraw={() => {}} />)).toBe('')
+})
+
+it('advance savings with an unpaid loan: pay your loans first, with what is owed', () => {
+  const page = renderToStaticMarkup(<AdvanceSavings me={me} year={2026} mine={[loan]} txns={[]} waiting={[]} start={11} onClose={() => {}} onLoans={() => {}} />)
+  expect(page).toContain('Pay your loans first')
+  expect(page).toContain('3FL · Flex (8% a month)')
+  expect(page).toContain('Total')
+  expect(page).not.toContain('Screenshot of your payment')
+})
+
+it('advance savings without loans: the future months, each in full, with the screenshot and payment accounts', () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(Date.UTC(2026, 8, 3, 4)) // Sep 3
+  const page = renderToStaticMarkup(<AdvanceSavings me={me} year={2026} mine={[]} txns={[]} waiting={[]} start={10} onClose={() => {}} onLoans={() => {}} />)
+  for (const mo of ['October', 'November', 'December']) expect(page).toContain(mo)
+  expect(page).toContain('Months to pay (₱1,000 each)')
+  expect(page).toContain('November: ₱1,000 in all')
+  expect(page).toContain('Screenshot of your payment')
+})
+
+it('on the Savings tab only future months that can be paid ahead are buttons', async () => {
+  const { MySavings } = await import('./savings')
+  const coop = { totalSavings: 0, totalInterest: 0, heads: 1, members: 1 } as never
+  const page = renderToStaticMarkup(<MySavings m={me} coop={coop} year={2026} advanceable={[11]} onAdvance={() => {}} />)
+  expect(page.match(/Pay \w+ savings in advance/g)).toEqual(['Pay Dec savings in advance'])
 })

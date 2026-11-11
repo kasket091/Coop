@@ -498,6 +498,7 @@ function PaymentRequestsPanel({ list, loans, txns, members, year, search }: {
     try { setProofs({ ...proofs, [id]: proofs[id] ? null : (await getPaymentProof(id)) ?? null }) } catch { await tell("Couldn't load the screenshot. Check your connection.") }
   }
   const what = (p: PaymentRequest) => p.kind === 'savings' ? `${MONTHS[p.month ?? 0]} savings`
+    : p.kind === 'advance' ? `Advance savings: ${(p.advanceMonths ?? []).map((i) => MONTHS[i]).join(', ')}`
     : `${p.loanLabel} · ${CHOICE[p.choice ?? 'custom']}${p.months?.length ? ` (${p.months.join(', ')})` : ''}`
   return (
     <div className="section">
@@ -513,12 +514,13 @@ function PaymentRequestsPanel({ list, loans, txns, members, year, search }: {
               <div className="request-head"><b>{p.memberName}</b><b>{peso(p.amount)}</b></div>
               <p className="note">{what(p)} · sent {dueDay(p.createdAt)}</p>
               {another && <p className="alert">Another payment for this loan is waiting too.</p>}
-              {p.kind === 'savings' && m && savingsAlreadyIn(p, m) && <p className="alert">{savingsAlreadyIn(p, m)}</p>}
+              {p.kind !== 'loan' && m && savingsAlreadyIn(p, m) && <p className="alert">{savingsAlreadyIn(p, m)}</p>}
+              {p.kind === 'advance' && unpaidLoans(loans, p.memberId, m?.sheetLoanBalance ?? 0).total > 0 && <p className="alert">{p.memberName} has unpaid loans now; advance savings are meant for members with none.</p>}
               <button className="link" onClick={() => showProof(p.id)}>{proofs[p.id] ? 'Hide screenshot' : 'Show screenshot'}</button>
               {proofs[p.id] && <img className="proof-full" src={proofs[p.id]!} alt={`${p.memberName}'s payment screenshot`} />}
               <p className={'error' in preview ? 'alert' : 'note'} role="status">
                 {'error' in preview ? `${preview.error} Reject it, or record it yourself.`
-                  : 'savings' in preview ? `Approving records ${peso(p.amount)} as ${MONTHS[p.month ?? 0]} savings.`
+                  : 'savings' in preview ? `Approving records ${peso(p.amount)} as ${what(p)}.`
                   : `Approving records ${peso(p.amount)} as of ${dueDay(p.createdAt)}; new balance ${peso(preview.balance)}.`}
               </p>
               <div className="actions">

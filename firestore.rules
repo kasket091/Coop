@@ -30,8 +30,8 @@ service cloud.firestore {
         && payment().amount is number && payment().amount > 0
         && payment().createdAt is number && math.abs(payment().createdAt - request.time.toMillis()) < 300000
         && payment().memberName == get(/databases/$(database)/documents/members/$(me())).data.name
-        && payment().keys().hasOnly(['memberId', 'memberName', 'kind', 'loanId', 'loanLabel', 'choice', 'months', 'month', 'amount', 'createdAt', 'status'])
-        && (payment().kind == 'savings'
+        && payment().keys().hasOnly(['memberId', 'memberName', 'kind', 'loanId', 'loanLabel', 'choice', 'months', 'month', 'advanceMonths', 'amount', 'createdAt', 'status'])
+        && (payment().kind == 'savings' || payment().kind == 'advance'
           || (payment().kind == 'loan' && get(/databases/$(database)/documents/loanRequests/$(payment().loanId)).data.borrowerId == me()));
       allow update: if isAdmin();
       allow delete: if isAdmin() || (isMember() && resource.data.memberId == me() && resource.data.status == 'pending');

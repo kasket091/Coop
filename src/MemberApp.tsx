@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { IconBell, IconLoans, IconPay, IconSavings, IconUser } from './icons'
 import { AccountTab, AlertsTab, LoansTab } from './member-tabs'
 import { unpaidLoans, type LoanRequest } from './requests'
-import { PaySavingsButton } from './pay-dialogs'
+import { AdvanceSavings, PaySavingsButton } from './pay-dialogs'
+import { advanceMonths } from './payments'
 import type { PaymentRequest } from './payments'
 import { CoopSection, MySavings } from './savings'
 import { Loading, Shell, type TabDef } from './Shell'
@@ -19,6 +20,7 @@ export function MemberApp({ uid, year }: { uid: string; year: number }) {
   const [txns, setTxns] = useState<Txn[]>([])
   const [payments, setPayments] = useState<PaymentRequest[]>([])
   const [tab, setTab] = useState<Tab>('savings')
+  const [advance, setAdvance] = useState<number | null>(null) // the future month tapped to pay ahead
 
   useEffect(() => watchMember(uid, setMe), [uid])
   useEffect(() => watchSummary(setSummary), [])
@@ -53,7 +55,10 @@ export function MemberApp({ uid, year }: { uid: string; year: number }) {
   return (
     <Shell year={year} tabs={tabs} current={tab} onTab={setTab}>
       {tab === 'savings' && <><MySavings m={me} coop={summaryFor(summary, me)} year={year} extra={<PaySavingsButton me={me} year={year} waiting={payments} />}
+        advanceable={me.terminated ? [] : advanceMonths(me, new Date(), year, payments)} onAdvance={setAdvance}
         termination={me.terminated ? { ...me.terminated, unpaid: unpaidLoans(mine, uid, me.sheetLoanBalance ?? 0).total } : undefined} />
+        {advance !== null && <AdvanceSavings me={me} year={year} mine={mine} txns={txns} waiting={payments} start={advance}
+          onClose={() => setAdvance(null)} onLoans={() => { setTab('loans'); scrollTo(0, 0) }} />}
         <CoopSection summary={summary} /></>}
       {tab === 'loans' && <LoansTab me={me} year={year} mine={mine} txns={txns} payments={payments} onPay={() => { setTab('pay'); scrollTo(0, 0) }} />}
       {tab === 'alerts' && me.founder && <AlertsTab me={me} asked={asked} />}

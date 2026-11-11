@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Txn } from './ledger'
-import { approvalDates, approvalPreview, choiceAmount, previewText, savingsAlreadyIn, choicePreview, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PaymentRequest } from './payments'
+import { advanceMonths, approvalDates, approvalPreview, choiceAmount, previewText, savingsAlreadyIn, choicePreview, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PaymentRequest } from './payments'
 import type { LoanRequest } from './requests'
 
 const at = (m: number, d: number, h = 12) => Date.UTC(2026, m, d, h - 8) // h o'clock in Manila
@@ -113,5 +113,24 @@ describe('review fixes', () => {
     expect(savingsAlreadyIn(s, m)).toBe('')
     expect(savingsAlreadyIn(s, { ...m, paid: m.paid.map((x, i) => (i === 10 ? 1000 : x)) })).toBe('November savings are already fully paid; approving adds ₱1,000 more.')
     expect(savingsAlreadyIn(s, { ...m, carried: m.carried.map((x, i) => (i === 10 ? 1000 : x)) })).toBe('November savings were carried over into a Savings Loan; approving adds ₱1,000 more. Use Pay For Savings on that loan instead.')
+  })
+})
+
+describe('advance savings: months after the current one, paid in full, only without unpaid loans', () => {
+  const nov12 = new Date(at(10, 12))
+  const ana = { heads: 2, paid: Array(12).fill(0), carried: Array(12).fill(0) }
+  it('only future months of this cycle that are not paid or already waiting', () => {
+    expect(advanceMonths(ana, nov12, 2026, [])).toEqual([11])
+    expect(advanceMonths(ana, new Date(at(8, 3)), 2026, [])).toEqual([9, 10, 11])
+    expect(advanceMonths({ ...ana, paid: ana.paid.map((x, i) => (i === 11 ? 1000 : x)) }, nov12, 2026, [])).toEqual([])
+    const waiting = [{ id: 'w', memberId: 'me', memberName: 'Ana', kind: 'advance', advanceMonths: [11], amount: 1000, createdAt: 1, status: 'pending' }] as PaymentRequest[]
+    expect(advanceMonths(ana, nov12, 2026, waiting)).toEqual([])
+    expect(advanceMonths(ana, new Date(Date.UTC(2027, 0, 5, 4)), 2026, [])).toEqual([]) // outside the cycle
+  })
+  it('an advance request needs nothing worked out, and flags a month paid in the meantime', () => {
+    const adv = { id: 'a', memberId: 'me', memberName: 'Ana', kind: 'advance', advanceMonths: [10, 11], amount: 2000, createdAt: 1, status: 'pending' } as PaymentRequest
+    expect(approvalPreview(adv, undefined, [])).toEqual({ savings: true })
+    expect(savingsAlreadyIn(adv, ana)).toBe('')
+    expect(savingsAlreadyIn(adv, { ...ana, paid: ana.paid.map((x, i) => (i === 11 ? 1000 : x)) })).toBe('December savings are already fully paid; approving adds ₱1,000 more.')
   })
 })

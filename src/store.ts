@@ -468,7 +468,8 @@ const viaNote = (p: PaymentRequest) => `member's payment request${p.months?.leng
 
 /**
  * The admin approves: a loan payment is recorded as the admin's Advance/Custom Payment, as of the day the member
- * sent it; savings as Record savings for its month. The request is marked approved in the same transaction.
+ * sent it; savings as Record savings for its month (advance savings: each ticked month in full). The request is
+ * marked approved in the same transaction.
  */
 export async function approvePaymentRequest(p: PaymentRequest, m: StoredMember, year: number, loan?: LoanRequest): Promise<void> {
   if (m.terminated) throw new Error('This account is terminated. Restore it to record payments.')
@@ -481,7 +482,12 @@ export async function approvePaymentRequest(p: PaymentRequest, m: StoredMember, 
     const ref = doc(db, 'paymentRequests', p.id)
     if ((await tx.get(ref)).data()?.status !== 'pending') throw new Error('This request was already decided.')
     const now = Date.now()
-    tx.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'savings', amount: p.amount, month: p.month, note: `Savings (${viaNote(p)})` }, year, now))
+    // advance savings: each ticked future month gets its full monthly savings (they show on the Advance Payment tab)
+    const months = p.kind === 'advance' ? p.advanceMonths ?? [] : [p.month]
+    const each = Math.round((p.amount / Math.max(1, months.length)) * 100) / 100
+    for (const month of months) {
+      tx.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'savings', amount: each, month, note: `${p.kind === 'advance' ? 'Advance savings' : 'Savings'} (${viaNote(p)})` }, year, now))
+    }
     tx.update(ref, { status: 'approved', decidedAt: now })
   })
   await rebuildLedger(m.uid, year)

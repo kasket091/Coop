@@ -67,6 +67,11 @@ describe('payment requests', () => {
     expect(paymentMessagesFor(pay(), pay({ status: 'approved' }))).toEqual([{ to: 'm', title: 'Payment recorded', body: 'Your ₱500 payment for 3FL was recorded.' }])
     expect(paymentMessagesFor(pay(), pay({ status: 'rejected', reason: 'wrong amount' }))).toEqual([{ to: 'm', title: 'Payment not accepted', body: "Your ₱500 payment for 3FL wasn't accepted: wrong amount." }])
   })
+  it('advance savings name every month paid ahead', () => {
+    const adv = pay({ kind: 'advance', advanceMonths: [10, 11], choice: undefined, loanLabel: undefined, amount: 2000 })
+    expect(paymentMessagesFor(undefined, adv)[0].body).toBe('Ana Reyes sent ₱2,000 for November, December savings (advance).')
+    expect(paymentMessagesFor(adv, { ...adv, status: 'approved' })[0].body).toBe('Your ₱2,000 payment for November, December savings was recorded.')
+  })
   it('anything else sends nothing', () => {
     expect(paymentMessagesFor(pay({ status: 'approved' }), pay({ status: 'approved' }))).toEqual([])
   })

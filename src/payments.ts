@@ -8,8 +8,10 @@ import { DUE_DAY, monthlyDue } from './rules'
 
 export type PayChoice = 'interest' | 'full' | 'custom'
 export type PaymentRequest = {
-  id: string; memberId: string; memberName: string; kind: 'loan' | 'savings'
+  id: string; memberId: string; memberName: string; kind: 'loan' | 'savings' | 'advance'
   loanId?: string; loanLabel?: string; choice?: PayChoice; months?: string[]; month?: number
+  /** advance savings: the future months paid in full (0–11) */
+  advanceMonths?: number[]
   amount: number; createdAt: number; status: 'pending' | 'approved' | 'rejected'; decidedAt?: number; reason?: string
 }
 
@@ -57,7 +59,7 @@ export const savingsPayMonth = (now: Date) => manila(now.getTime()).getUTCMonth(
  * same as a late Advance/Custom Payment), or why it can't be recorded. Savings need nothing worked out.
  */
 export function approvalPreview(p: PaymentRequest, loan: LoanRequest | undefined, txns: Txn[]): { savings: true } | { balance: number } | { error: string } {
-  if (p.kind === 'savings') return { savings: true }
+  if (p.kind !== 'loan') return { savings: true }
   if (!loan) return { error: 'This loan no longer exists.' }
   if (loan.status === 'paid') return { error: 'This loan is already paid off.' }
   if (loan.status !== 'approved') return { error: 'This loan is no longer open.' }
@@ -87,8 +89,24 @@ export function previewText(p: Exclude<CustomPayment, { error: string }>, amount
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 /** Why a savings request might double-count its month (already paid, or carried over into a Savings Loan), or ''. */
 export function savingsAlreadyIn(p: PaymentRequest, m: { heads: number; paid: number[]; carried?: number[] }): string {
-  const i = p.month ?? 0
-  if ((m.carried?.[i] ?? 0) > 0) return `${MONTH_NAMES[i]} savings were carried over into a Savings Loan; approving adds ${peso(p.amount)} more. Use Pay For Savings on that loan instead.`
-  if ((m.paid[i] ?? 0) >= monthlyDue(m.heads)) return `${MONTH_NAMES[i]} savings are already fully paid; approving adds ${peso(p.amount)} more.`
+  const months = p.kind === 'advance' ? p.advanceMonths ?? [] : [p.month ?? 0]
+  const each = cents(p.amount / Math.max(1, months.length))
+  for (const i of months) {
+    if ((m.carried?.[i] ?? 0) > 0) return `${MONTH_NAMES[i]} savings were carried over into a Savings Loan; approving adds ${peso(each)} more. Use Pay For Savings on that loan instead.`
+    if ((m.paid[i] ?? 0) >= monthlyDue(m.heads)) return `${MONTH_NAMES[i]} savings are already fully paid; approving adds ${peso(each)} more.`
+  }
   return ''
+}
+
+/**
+ * The months a member can pay ahead (tap on the Savings tab): after the current month (Manila), in this cycle, not
+ * already paid or carried over, and not in a payment request still waiting. Each is paid in full.
+ */
+export function advanceMonths(m: { heads: number; paid: number[]; carried?: number[] }, now: Date, year: number, waiting: PaymentRequest[]): number[] {
+  const d = manila(now.getTime())
+  if (d.getUTCFullYear() !== year) return []
+  const sent = new Set(waiting.filter((p) => p.status === 'pending').flatMap((p) => p.advanceMonths ?? (p.kind === 'savings' ? [p.month ?? -1] : [])))
+  const out: number[] = []
+  for (let i = d.getUTCMonth() + 1; i < 12; i++) if ((m.paid[i] ?? 0) < monthlyDue(m.heads) && !((m.carried?.[i] ?? 0) > 0) && !sent.has(i)) out.push(i)
+  return out
 }

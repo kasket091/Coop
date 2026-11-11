@@ -5,8 +5,8 @@ import { tell } from './dialog'
 import { dueDay, MONTHS, peso } from './format'
 import { shrinkImage } from './image'
 import type { Txn } from './ledger'
-import { choiceAmount, choicePreview, previewText, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PayChoice, type PaymentRequest } from './payments'
-import { balanceOf, interestDueNow, refLabel, type LoanRequest } from './requests'
+import { advanceMonths, choiceAmount, choicePreview, previewText, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PayChoice, type PaymentRequest } from './payments'
+import { balanceOf, interestDueNow, refLabel, unpaidLoans, type LoanRequest } from './requests'
 import { monthlyDue } from './rules'
 import { sendPaymentRequest, type StoredMember } from './store'
 import { PaymentAccounts, TYPES } from './tabs'
@@ -182,12 +182,69 @@ export function MyPayments({ list, onWithdraw }: { list: PaymentRequest[]; onWit
       <ul className="rows panel">
         {shown.map((p) => (
           <li key={p.id}>
-            <span>{p.kind === 'savings' ? `${MONTH_NAMES[p.month ?? 0]} savings` : p.loanLabel} · {dueDay(p.createdAt)}
+            <span>{p.kind === 'savings' ? `${MONTH_NAMES[p.month ?? 0]} savings` : p.kind === 'advance' ? `Advance savings: ${(p.advanceMonths ?? []).map((i) => MONTH_NAMES[i]).join(', ')}` : p.loanLabel} · {dueDay(p.createdAt)}
               <small className="advance-sub">{p.status === 'pending' ? 'Waiting for the admin' : `Not accepted: ${p.reason}`}</small></span>
             <b>{peso(p.amount)}{p.status === 'pending' && <> <button className="btn-mini" onClick={() => onWithdraw(p)}>Withdraw</button></>}</b>
           </li>
         ))}
       </ul>
     </div>
+  )
+}
+
+/**
+ * A future month tapped on the Savings tab. With any unpaid loan, the member is told to pay it first (with a summary);
+ * otherwise they tick the future months to pay in full and send one request with the screenshot.
+ */
+export function AdvanceSavings({ me, year, mine, txns, waiting, start, onClose, onLoans }: {
+  me: StoredMember; year: number; mine: LoanRequest[]; txns: Txn[]; waiting: PaymentRequest[]; start: number; onClose: () => void; onLoans: () => void
+}) {
+  const now = Date.now()
+  const unpaid = unpaidLoans(mine, me.uid, me.sheetLoanBalance ?? 0, { txns, now })
+  const open = advanceMonths(me, new Date(now), year, waiting)
+  const [ticked, setTicked] = useState<number[]>([start])
+  const [image, setImage] = useState('')
+  const [error, setError] = useState('')
+  if (unpaid.total > 0) {
+    return (
+      <PayDialog title="Pay your loans first" onClose={onClose}>
+        <p className="note">Savings can be paid in advance once your loans are paid. You still owe:</p>
+        <ul className="rows">
+          {unpaid.loans.map((r) => (
+            <li key={r.id}><span>{loanLabel(r)}</span><b>{peso(balanceOf(r))}{interestDueNow(r, txns, now) > 0 ? ` · ${peso(interestDueNow(r, txns, now))} interest due` : ''}</b></li>
+          ))}
+          {(me.sheetLoanBalance ?? 0) > 0 && <li><span>Earlier loan</span><b>{peso(me.sheetLoanBalance!)}</b></li>}
+          <li><span>Total</span><b>{peso(unpaid.total)}</b></li>
+        </ul>
+        <div className="actions">
+          <button className="btn" onClick={() => { onClose(); onLoans() }}>Pay Now</button>
+          <button type="button" className="copy" onClick={onClose}>Close</button>
+        </div>
+      </PayDialog>
+    )
+  }
+  const months = open.filter((i) => ticked.includes(i))
+  const amount = monthlyDue(me.heads) * months.length
+  const send = async () => {
+    setError('')
+    try {
+      await sendPaymentRequest({ memberId: me.uid, memberName: me.name, kind: 'advance', advanceMonths: months, amount }, image)
+      onClose(); await sent()
+    } catch (err) { setError((err as Error).message || "Couldn't send. Check your connection.") }
+  }
+  return (
+    <PayDialog title="Pay savings in advance" onClose={onClose}>
+      <fieldset className="pay-choice">
+        <legend>Months to pay ({peso(monthlyDue(me.heads))} each)</legend>
+        {open.map((i) => (
+          <label key={i}><input type="checkbox" checked={ticked.includes(i)} onChange={() => setTicked(ticked.includes(i) ? ticked.filter((x) => x !== i) : [...ticked, i])} /> {MONTH_NAMES[i]}</label>
+        ))}
+      </fieldset>
+      <p className="note" role="status">{months.length ? `${months.map((i) => MONTH_NAMES[i]).join(', ')}: ${peso(amount)} in all` : 'Tick at least one month.'}</p>
+      <ProofField image={image} onImage={setImage} onError={setError} />
+      <PaymentAccounts />
+      {error && <p className="alert" role="alert">{error}</p>}
+      <SendRow ready={amount > 0 && !!image} onSend={send} onCancel={onClose} />
+    </PayDialog>
   )
 }
