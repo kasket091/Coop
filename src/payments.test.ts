@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Txn } from './ledger'
-import { choiceAmount, choicePreview, savingsPayMonth, savingsPayOpen, unpaidInterestMonths } from './payments'
+import { approvalPreview, choiceAmount, choicePreview, savingsPayMonth, savingsPayOpen, unpaidInterestMonths, type PaymentRequest } from './payments'
 import type { LoanRequest } from './requests'
 
 const at = (m: number, d: number, h = 12) => Date.UTC(2026, m, d, h - 8) // h o'clock in Manila
@@ -61,5 +61,33 @@ describe('Pay savings: open from the 1st to the 7th (Manila)', () => {
   it('closed outside the cycle year', () => expect(savingsPayOpen(new Date(Date.UTC(2027, 0, 3, 4)), 2026)).toBe(false))
   it("the month is Manila's: Oct 31, 5 PM in UTC is already Nov 1 in Manila", () => {
     expect(savingsPayMonth(new Date(Date.UTC(2026, 9, 31, 17)))).toBe(10)
+  })
+})
+
+describe('what Approve will record, worked out before the admin taps it', () => {
+  const req = (over: Partial<PaymentRequest> = {}): PaymentRequest => ({
+    id: 'p1', memberId: 'me', memberName: 'Ana', kind: 'loan', loanId: 'L1', choice: 'custom', amount: 24825.44, createdAt: at(4, 4), status: 'pending', ...over,
+  })
+  it('a normal payment: the balance after it, as of the day it was sent', () => {
+    expect(approvalPreview(req(), flex, [])).toEqual({ balance: 31161.76 })
+  })
+  it('sent for a month already carried over: the loan is rebuilt from its payments in date order', () => {
+    // approved Feb 6, Mar 6 – Jun 6 all carried over before the May 4 payment came in
+    const late = [...txns,
+      carry(3, 'Carryover: ₱4,478.98 interest due May 6 was not paid; balance now ₱60,466.18'),
+      carry(4, 'Carryover: ₱4,837.29 interest due Jun 6 was not paid; balance now ₱65,303.47')]
+    const r = { ...flex, balance: 65303.47, carryovers: 4 } as LoanRequest
+    expect(approvalPreview(req(), r, late)).toEqual({ balance: expect.any(Number) })
+    expect((approvalPreview(req(), r, late) as { balance: number }).balance).toBeLessThan(65303.47)
+  })
+  it('the loan is gone or already paid off: says so, so only Reject is possible', () => {
+    expect(approvalPreview(req(), undefined, [])).toEqual({ error: 'This loan no longer exists.' })
+    expect(approvalPreview(req(), { ...flex, status: 'paid' } as LoanRequest, [])).toEqual({ error: 'This loan is already paid off.' })
+  })
+  it('more than is owed now: the same error the admin form gives', () => {
+    expect(approvalPreview(req({ amount: 90000 }), flex, [])).toMatchObject({ error: expect.stringMatching(/more than is owed/) })
+  })
+  it('savings: nothing to work out', () => {
+    expect(approvalPreview(req({ kind: 'savings', loanId: undefined, month: 10, amount: 6000 }), undefined, [])).toEqual({ savings: true })
   })
 })
