@@ -8,7 +8,7 @@ import { onDocumentWritten } from 'firebase-functions/v2/firestore'
 import { onSchedule } from 'firebase-functions/v2/scheduler'
 import type { Txn } from '../../src/ledger'
 import { balanceOf, compoundFix, loanSnapshot, missedInterest, refLabel, type LoanRequest } from '../../src/requests'
-import { messagesFor, type Message, type Req } from './messages'
+import { messagesFor, paymentMessagesFor, type Message, type PayReq, type Req } from './messages'
 
 initializeApp()
 // Singapore, next to the database; at most 2 copies running at once keeps any mistake cheap
@@ -44,6 +44,14 @@ export const loanRequestPush = onDocumentWritten('loanRequests/{id}', async (eve
   if (!after) return // deleted
   const before = event.data?.before.exists ? (event.data.before.data() as Req) : undefined
   await Promise.all(messagesFor(before, after).map(send))
+})
+
+/** A member's payment request: the admin hears of a new one; the member hears when it is approved or rejected. */
+export const paymentRequestPush = onDocumentWritten('paymentRequests/{id}', async (event) => {
+  const after = event.data?.after.data() as PayReq | undefined
+  if (!after) return // withdrawn, or cleared with the cycle
+  const before = event.data?.before.exists ? (event.data.before.data() as PayReq) : undefined
+  await Promise.all(paymentMessagesFor(before, after).map(send))
 })
 
 

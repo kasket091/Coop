@@ -1,5 +1,5 @@
-import { expect, it } from 'vitest'
-import { messagesFor, type Req } from './messages'
+import { describe, expect, it } from 'vitest'
+import { messagesFor, paymentMessagesFor, type PayReq, type Req } from './messages'
 
 const req = (over: Partial<Req> = {}): Req => ({
   borrowerId: 'b', borrowerName: 'Juan Dela Cruz', type: 'flex', amount: 5000, status: 'pending',
@@ -53,4 +53,21 @@ it('interest added to a loan (automatic or the Carryover button) tells the borro
   expect(messagesFor(before, after)).toEqual([{ to: 'b', title: 'Interest added', body: '₱600 unpaid interest was added to your 4SL #18 loan. You now owe ₱7,200.' }])
   // a payment (balance down, no new carryover) sends nothing
   expect(messagesFor(after, { ...after, balance: 6600 })).toEqual([])
+})
+
+describe('payment requests', () => {
+  const pay = (over: Partial<PayReq> = {}): PayReq => ({ memberId: 'm', memberName: 'Ana Reyes', kind: 'loan', loanLabel: '3FL · Flex (8% a month)', choice: 'interest', amount: 500, status: 'pending', ...over })
+  it('a new one tells the admin what to check', () => {
+    expect(paymentMessagesFor(undefined, pay())).toEqual([{ to: 'admin', title: 'Payment to check', body: 'Ana Reyes sent ₱500 for 3FL interest.' }])
+    expect(paymentMessagesFor(undefined, pay({ choice: 'full', amount: 5000 }))[0].body).toBe('Ana Reyes sent ₱5,000 to pay off 3FL.')
+    expect(paymentMessagesFor(undefined, pay({ choice: 'custom' }))[0].body).toBe('Ana Reyes sent ₱500 for 3FL.')
+    expect(paymentMessagesFor(undefined, pay({ kind: 'savings', month: 10, choice: undefined, loanLabel: undefined }))[0].body).toBe('Ana Reyes sent ₱500 for November savings.')
+  })
+  it('approved or rejected tells the member', () => {
+    expect(paymentMessagesFor(pay(), pay({ status: 'approved' }))).toEqual([{ to: 'm', title: 'Payment recorded', body: 'Your ₱500 payment for 3FL was recorded.' }])
+    expect(paymentMessagesFor(pay(), pay({ status: 'rejected', reason: 'wrong amount' }))).toEqual([{ to: 'm', title: 'Payment not accepted', body: "Your ₱500 payment for 3FL wasn't accepted: wrong amount." }])
+  })
+  it('anything else sends nothing', () => {
+    expect(paymentMessagesFor(pay({ status: 'approved' }), pay({ status: 'approved' }))).toEqual([])
+  })
 })

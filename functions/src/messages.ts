@@ -48,3 +48,27 @@ export function messagesFor(before: Req | undefined, after: Req): Message[] {
     return [{ to: 'admin', title: 'Loan ready to approve', body: `${after.borrowerName}'s ${what(after)} has every co-maker's approval.` }]
   return []
 }
+
+/** A member's payment sent for the admin to check (Pay Now on a loan, or Pay savings). */
+export type PayReq = {
+  memberId: string; memberName: string; kind: 'loan' | 'savings'; loanLabel?: string; choice?: 'interest' | 'full' | 'custom'
+  month?: number; amount: number; status: 'pending' | 'approved' | 'rejected'; reason?: string
+}
+const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+/** The loan's reference alone ("3FL" from "3FL · Flex (8% a month)"), or the whole label without one. */
+const ref = (p: PayReq) => (p.loanLabel ?? 'your loan').split(' · ')[0]
+
+/** New → the admin; approved or rejected → the member. `before` is undefined for a new request. */
+export function paymentMessagesFor(before: PayReq | undefined, after: PayReq): Message[] {
+  if (!before) {
+    if (after.status !== 'pending') return []
+    const what = after.kind === 'savings' ? `for ${MONTH[after.month ?? 0]} savings`
+      : after.choice === 'full' ? `to pay off ${ref(after)}` : after.choice === 'interest' ? `for ${ref(after)} interest` : `for ${ref(after)}`
+    return [{ to: 'admin', title: 'Payment to check', body: `${after.memberName} sent ${peso(after.amount)} ${what}.` }]
+  }
+  if (before.status !== 'pending' || after.status === 'pending') return []
+  const forWhat = after.kind === 'savings' ? `${MONTH[after.month ?? 0]} savings` : ref(after)
+  return after.status === 'approved'
+    ? [{ to: after.memberId, title: 'Payment recorded', body: `Your ${peso(after.amount)} payment for ${forWhat} was recorded.` }]
+    : [{ to: after.memberId, title: 'Payment not accepted', body: `Your ${peso(after.amount)} payment for ${forWhat} wasn't accepted: ${after.reason ?? ''}.` }]
+}
