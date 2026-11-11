@@ -8,7 +8,7 @@ const sample = makeBackup({
 }, 1000)
 
 it('covers every collection the app uses', () => {
-  expect(BACKUP_COLLECTIONS).toEqual(['members', 'founders', 'logins', 'loanRequests', 'transactions', 'settings', 'coop', 'counters', 'notes'])
+  expect(BACKUP_COLLECTIONS).toEqual(['members', 'founders', 'logins', 'loanRequests', 'transactions', 'settings', 'coop', 'counters', 'notes', 'paymentRequests'])
 })
 
 it('a backup round-trips through a file unchanged', () => {

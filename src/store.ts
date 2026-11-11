@@ -17,6 +17,7 @@ import { DEFAULT_CYCLE_YEAR, type CoopSummary, type Member } from './rules'
 import { importRows, publicSummary, type Summary } from './summary'
 import { feeTopUps, payFromSavings } from './termination'
 import { dueDay } from './format'
+import type { PaymentRequest } from './payments'
 import { BACKUP_COLLECTIONS, makeBackup, type Backup } from './backup'
 
 // Offline, Firestore would queue writes and send them later (a payment or void landing hours after it was typed):
@@ -301,12 +302,15 @@ export async function adminDecide(id: string, status: 'approved' | 'declined', y
  * only once it is paid.
  */
 type LoanEntry = { kind: TxnKind; amount: number; note: string; carryover?: boolean; month?: number; settles?: boolean; period?: number; paidOn?: number; restores?: string[] }
-async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number | boolean>; entries: LoanEntry[]; voids?: string[] }) {
+/** `request`: a member's payment request this records; it is marked approved in the same transaction (once only). */
+async function loanAction(id: string, year: number, act: (r: LoanRequest) => { update: Record<string, string | number | boolean>; entries: LoanEntry[]; voids?: string[] }, request?: string) {
   let memberId = ''
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'loanRequests', id)
     const r = { ...((await tx.get(ref)).data() as LoanRequest), id }
     if (r.status !== 'approved') throw new Error('This loan is no longer open.')
+    const requestRef = request ? doc(db, 'paymentRequests', request) : null
+    if (requestRef && (await tx.get(requestRef)).data()?.status !== 'pending') throw new Error('This request was already decided.')
     const { update, entries, voids = [] } = act(r)
     // a paid-off Savings Loan: the missed savings it covered now count as saved (voiding the payoff undoes it)
     // (not when Pay For Savings already counted them)
@@ -320,6 +324,7 @@ async function loanAction(id: string, year: number, act: (r: LoanRequest) => { u
     for (const e of entries) {
       tx.set(doc(txns), txnRecord({ memberId: r.borrowerId, memberName: r.borrowerName, loanId: id, loanBefore: loanSnapshot(r), ...e }, year, now))
     }
+    if (requestRef) tx.update(requestRef, { status: 'approved', decidedAt: now })
     memberId = r.borrowerId
   })
   await rebuildLedger(memberId, year)
@@ -378,7 +383,7 @@ export const payForSavings = (id: string, year: number) =>
  * late entry): its month follows that day. `forAt` is a day in the period it counts for (default: the day paid); that
  * period then has nothing to carry over. The entry is still dated now, so Void keeps its order.
  */
-export const loanCustomPayment = async (id: string, year: number, amount: number, at = Date.now(), forAt = at) => {
+export const loanCustomPayment = async (id: string, year: number, amount: number, at = Date.now(), forAt = at, via?: { request: string; note: string }) => {
   const lt = await loanTxns(id)
   return loanAction(id, year, (r) => {
     const paidDay = new Date(at + 8 * 3600_000) // Manila
@@ -389,11 +394,11 @@ export const loanCustomPayment = async (id: string, year: number, amount: number
     const period = loanPeriod(r, forAt)
     // recorded late: an earlier month was already carried over, or a later payment is already in. Rebuild the loan
     // from its capital and every payment in date order, so months paid in time carry nothing
-    if (recordedLate(r, lt, at, period.n)) return recalculated(r, lt, [...paymentHistory(r, lt), { at, amount, period: period.n }], at)
+    if (recordedLate(r, lt, at, period.n)) return recalculated(r, lt, [...paymentHistory(r, lt), { at, amount, period: period.n }], at, via?.note)
     const p = customPayment(r, amount, waivedDue(amount, interestDueNow(r, lt, at, period)))
     if ('error' in p) throw new Error(p.error)
     const toPrincipal = Math.round((amount - p.collected) * 100) / 100
-    const what = `Custom payment of ${php(amount)}${dueDay(at) === dueDay(Date.now()) ? '' : ` paid ${dueDay(at)}`}`
+    const what = `Custom payment of ${php(amount)}${dueDay(at) === dueDay(Date.now()) ? '' : ` paid ${dueDay(at)}`}${via ? ` (${via.note})` : ''}`
     const m = paidDay.getUTCMonth()
     const paidOn = dueDay(at) === dueDay(Date.now()) ? undefined : at
     return {
@@ -403,11 +408,11 @@ export const loanCustomPayment = async (id: string, year: number, amount: number
         ...(toPrincipal > 0 ? [{ kind: 'principal' as const, amount: toPrincipal, period: period.n, month: m, paidOn, note: `${what}: off the balance` }] : []),
       ],
     }
-  })
+  }, via?.request)
 }
 
 /** The loan rebuilt from its history (replayLoan): old carryovers and payments voided, the rebuilt ones written. */
-function recalculated(r: LoanRequest, lt: Txn[], payments: (HistoryPayment & { ids?: string[] })[], newAt: number) {
+function recalculated(r: LoanRequest, lt: Txn[], payments: (HistoryPayment & { ids?: string[] })[], newAt: number, viaNote?: string) {
   const h = replayLoan(r, payments)
   const old = [...new Set([...lt.filter((t) => !t.voidedAt && t.carryover).map((t) => t.id), ...payments.flatMap((p) => p.ids ?? [])])]
   const monthOf = (ms: number) => new Date(ms + 8 * 3600_000).getUTCMonth()
@@ -420,7 +425,7 @@ function recalculated(r: LoanRequest, lt: Txn[], payments: (HistoryPayment & { i
     }
     const base = { period: s.pay.period, month: monthOf(s.pay.at), paidOn: s.pay.at }
     if (s.pay.interestOnly) { entries.push({ ...base, kind: 'interest', amount: s.pay.amount, note: `Interest paid ${php(s.pay.amount)} on ${dueDay(s.pay.at)}; balance now ${php(s.balance)}` }); continue }
-    const what = `${s.pay.at === newAt ? 'Custom payment' : 'Payment'} of ${php(s.pay.amount)} paid ${dueDay(s.pay.at)}`
+    const what = `${s.pay.at === newAt ? 'Custom payment' : 'Payment'} of ${php(s.pay.amount)} paid ${dueDay(s.pay.at)}${s.pay.at === newAt && viaNote ? ` (${viaNote})` : ''}`
     if (s.collected > 0) entries.push({ ...base, kind: 'interest', amount: s.collected, note: `${what}: interest part; balance now ${php(s.balance)}` })
     if (s.principalPaid > 0) entries.push({ ...base, kind: 'principal', amount: s.principalPaid, note: `${what}: off the balance; balance now ${php(s.balance)}` })
   }
@@ -429,6 +434,61 @@ function recalculated(r: LoanRequest, lt: Txn[], payments: (HistoryPayment & { i
     update: { balance: h.balance, principal: h.principal, carryovers: h.carryovers, customPayments: (r.customPayments ?? 0) + 1,
       ...(h.paidOffAt ? { status: 'paid', paidAt: h.paidOffAt } : {}) },
   }
+}
+
+// ---------- payment requests (members' Pay Now / Pay savings; the admin approves) ----------
+const payments = collection(db, 'paymentRequests')
+const asPayments = (docs: { id: string; data: () => unknown }[]) =>
+  docs.map((d) => ({ ...(d.data() as PaymentRequest), id: d.id })).sort((a, b) => b.createdAt - a.createdAt)
+
+/** A member sends a payment with its screenshot (a shrunk JPEG data URL); nothing is recorded until the admin approves. */
+export async function sendPaymentRequest(p: Omit<PaymentRequest, 'id' | 'status' | 'createdAt'>, image: string): Promise<void> {
+  if (!(p.amount > 0)) throw new Error('Enter an amount above ₱0.')
+  const ref = doc(payments)
+  const batch = writeBatch(db)
+  batch.set(ref, Object.fromEntries(Object.entries({ ...p, status: 'pending', createdAt: Date.now() }).filter(([, v]) => v !== undefined)))
+  batch.set(doc(db, 'paymentProofs', ref.id), { memberId: p.memberId, image })
+  await batch.commit()
+}
+/** A member takes back a request the admin hasn't decided yet. */
+export async function withdrawPaymentRequest(id: string): Promise<void> {
+  const batch = writeBatch(db) // the rules allow it only for their own, while still pending
+  batch.delete(doc(db, 'paymentRequests', id))
+  batch.delete(doc(db, 'paymentProofs', id))
+  await batch.commit()
+}
+export const watchMyPaymentRequests = (uid: string, cb: (p: PaymentRequest[]) => void): Unsubscribe =>
+  onSnapshot(query(payments, where('memberId', '==', uid)), (s) => cb(asPayments(s.docs)))
+export const watchPaymentRequests = (cb: (p: PaymentRequest[]) => void): Unsubscribe =>
+  onSnapshot(payments, (s) => cb(asPayments(s.docs)))
+export const getPaymentProof = async (id: string) => (await getDoc(doc(db, 'paymentProofs', id))).data()?.image as string | undefined
+
+/** What the entries say about where a payment came from (shown in the transactions and the account log). */
+const viaNote = (p: PaymentRequest) => `member's payment request${p.months?.length ? `; months: ${p.months.join(', ')}` : ''}`
+
+/**
+ * The admin approves: a loan payment is recorded as the admin's Advance/Custom Payment, as of the day the member
+ * sent it; savings as Record savings for its month. The request is marked approved in the same transaction.
+ */
+export async function approvePaymentRequest(p: PaymentRequest, m: StoredMember, year: number): Promise<void> {
+  if (m.terminated) throw new Error('This account is terminated. Restore it to record payments.')
+  if (p.kind === 'loan') return loanCustomPayment(p.loanId!, year, p.amount, p.createdAt, p.createdAt, { request: p.id, note: viaNote(p) })
+  await runTransaction(db, async (tx) => {
+    const ref = doc(db, 'paymentRequests', p.id)
+    if ((await tx.get(ref)).data()?.status !== 'pending') throw new Error('This request was already decided.')
+    const now = Date.now()
+    tx.set(doc(txns), txnRecord({ memberId: m.uid, memberName: m.name, kind: 'savings', amount: p.amount, month: p.month, note: `Savings (${viaNote(p)})` }, year, now))
+    tx.update(ref, { status: 'approved', decidedAt: now })
+  })
+  await rebuildLedger(m.uid, year)
+}
+export async function rejectPaymentRequest(id: string, reason: string): Promise<void> {
+  if (!reason.trim()) throw new Error('Give a reason, so the member knows what to fix.')
+  await runTransaction(db, async (tx) => {
+    const ref = doc(db, 'paymentRequests', id)
+    if ((await tx.get(ref)).data()?.status !== 'pending') throw new Error('This request was already decided.')
+    tx.update(ref, { status: 'rejected', decidedAt: Date.now(), reason: reason.trim() })
+  })
 }
 
 /**
@@ -756,9 +816,9 @@ async function allMembers(): Promise<StoredMember[]> {
   return (await getDocs(collection(db, 'members'))).docs.map((d) => ({ ...(d.data() as StoredMember), uid: d.id }))
 }
 
-/** New yearly cycle: clears members, logins, founders and loan requests, then sets the year. */
+/** New yearly cycle: clears members, logins, founders, loans, transactions and payment requests (with their screenshots), then sets the year. */
 export async function startCycle(year: number): Promise<void> {
-  for (const name of ['members', 'founders', 'logins', 'loanRequests', 'transactions']) {
+  for (const name of ['members', 'founders', 'logins', 'loanRequests', 'transactions', 'paymentRequests', 'paymentProofs']) {
     const docs = (await getDocs(collection(db, name))).docs
     for (let i = 0; i < docs.length; i += 400) {
       const batch = writeBatch(db)
@@ -782,7 +842,8 @@ export async function exportDatabase(): Promise<Backup> {
 
 /** Deletes every document the app uses. Sign-in accounts (passwords) are kept, so a restore brings logins back. */
 export async function clearDatabase(onProgress: (msg: string) => void = () => {}): Promise<void> {
-  for (const name of BACKUP_COLLECTIONS) {
+  // screenshots aren't in backups (they'd make the file huge), so they are cleared on their own
+  for (const name of [...BACKUP_COLLECTIONS, 'paymentProofs']) {
     onProgress(`Clearing ${name}…`)
     const docs = (await getDocs(collection(db, name))).docs
     await commitChunks(docs.map((d) => (b) => b.delete(d.ref)))
